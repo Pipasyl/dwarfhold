@@ -76,6 +76,7 @@ export function ColonyPage() {
               const base = (dwarf: (typeof present)[number]) => Object.values(productionFor(dwarf)[job])[0] ?? 0;
               // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
               // D2: "full" = output without hunger, including +1 for each worker with a tool
+              // D6: base(dwarf) instead of perDwarf, so the ogre's own rate is used
               const full = present.reduce((sum, dwarf) => sum + base(dwarf) + (dwarf.hasTool ? 1 : 0), 0);
               // Real output of this job today, with hunger and tools applied (D2: shared formula)
               const actual = present.reduce(
