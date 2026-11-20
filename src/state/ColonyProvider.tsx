@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { beginExpedition } from "../api";
-import { advanceDay, jobLabel } from "../simulation";
+// D1: statusFor = shared badge rule, hungerMessages = chronicle text for hunger changes
+import { advanceDay, hungerMessages, jobLabel, statusFor } from "../simulation";
 import type {
   Activity,
   ColonyState,
@@ -70,6 +71,31 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [paused]);
 
+  // D1 chronicle: remembers the dwarves from the previous render, so we can see what changed.
+  // WHY a ref: a ref keeps a value between renders, and changing it does not cause a new render.
+  const previousDwarves = useRef(colony.dwarves);
+
+  // D1 chronicle: runs after every change to the dwarves and logs hunger level changes.
+  // WHY here and not inside setColony: React may call the setColony function twice in
+  // development (Strict Mode), which would write every chronicle entry twice.
+  useEffect(() => {
+    const messages = hungerMessages(previousDwarves.current, colony.dwarves);
+    previousDwarves.current = colony.dwarves;
+    if (messages.length === 0) return;
+
+    setActivities((current) =>
+      [
+        ...messages.map((message) => ({
+          id: crypto.randomUUID(),
+          day: colony.day,
+          message: message.text,
+          tone: message.tone,
+        })),
+        ...current,
+      ].slice(0, 6), // same 6-entry limit as the other chronicle entries
+    );
+  }, [colony.dwarves, colony.day]);
+
   function assignDwarf(id: string, assignment: JobType) {
     setColony((current) => ({
       ...current,
@@ -78,7 +104,8 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
           ? {
               ...dwarf,
               assignment,
-              status: assignment ? "working" : "idle",
+              // D1 badge fix: a dwarf hungry for 3+ days stays IDLE even with a job (shared rule)
+              status: statusFor({ ...dwarf, assignment }),
             }
           : dwarf,
       ),
@@ -169,7 +196,8 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
           item.id === dwarf.id
             ? {
                 ...item,
-                status: item.assignment ? "working" : "idle",
+                // D1 badge fix: same shared rule when the dwarf comes back from an expedition
+                status: statusFor(item),
               }
             : item,
         ),

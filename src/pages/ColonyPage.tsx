@@ -22,7 +22,9 @@ export function ColonyPage() {
 
   const dailyOutput = colony.dwarves.reduce<Record<ResourceKey, number>>(
     (total, dwarf) => {
-      if (dwarf.assignment) {
+      // D1 ledger fix: a dwarf on an expedition produces nothing (same rule as advanceDay),
+      // so only present workers count here. Meals below still count everyone, because away dwarves eat too.
+      if (dwarf.assignment && dwarf.status !== "expedition") {
         const output = production[dwarf.assignment];
         Object.entries(output).forEach(([resource, amount]) => {
           // Hungry dwarves count with their reduced output, so the net food matches the real day
@@ -60,10 +62,12 @@ export function ColonyPage() {
               const workers = colony.dwarves.filter(
                 (dwarf) => dwarf.assignment === job,
               );
+              // D1 ledger fix: only workers who are present produce; "N assigned" still shows everyone with the job
+              const present = workers.filter((dwarf) => dwarf.status !== "expedition");
               const perDwarf = Object.values(production[job])[0] ?? 0;
-              const full = workers.length * perDwarf;
+              const full = present.length * perDwarf; // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
               // Real output of this job today, with hunger applied
-              const actual = workers.reduce(
+              const actual = present.reduce(
                 (sum, dwarf) => sum + Math.round(perDwarf * hungerShare(dwarf)),
                 0,
               );
