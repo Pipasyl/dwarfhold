@@ -6,7 +6,8 @@ import { beginExpedition } from "../api";
 // D4: expeditionProblem/departExpedition/returnFromExpedition = resilient expedition rules
 // D5: parseSave/restoreAfterRefresh/SAVE_VERSION = save checks and refresh policy
 // D6: joinAfterExpedition/joinMessages = the ogre joins after the first Old Mine success; craftDays = smith-specific craft time
-import { advanceDay, craftDays, craftProblem, joinAfterExpedition, joinMessages, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation"; // D6: recipes removed (craftDays now gives the time)
+// D7: raidAfterExpedition/raidMessages = goblin raid after a Goblin Warrens success + its chronicle messages
+import { advanceDay, raidAfterExpedition, raidMessages, craftDays, craftProblem, joinAfterExpedition, joinMessages, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation"; // D6: recipes removed (craftDays now gives the time)
 import type {
   Activity,
   ColonyState,
@@ -143,6 +144,7 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
       ...hungerMessages(before.dwarves, colony.dwarves),
       ...forgeMessages(before, colony), // D3: "X finished forging a tool" when a craft completes
       ...joinMessages(before.dwarves, colony.dwarves), // D6: "Grukk ... joins Stonehome!" when the ogre arrives
+      ...raidMessages(before, colony), // D7: raid warning, then "driven off" or "looted" with the losses
     ];
     previousColony.current = colony;
     if (messages.length === 0) return;
@@ -251,7 +253,10 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
       const result = await beginExpedition(dwarf.id, destination);
       // D4: rewards once. D6: in the SAME update the ogre may join (only here = only on success).
       // WHY the same update: rewards and the new member arrive together, so neither can happen twice or alone.
-      setColony((current) => joinAfterExpedition(returnFromExpedition(current, dwarfId, result.rewards), destination));
+      // D7: the raid is set in this SAME success-only update, so a failed request can never start an attack
+      setColony((current) =>
+        raidAfterExpedition(joinAfterExpedition(returnFromExpedition(current, dwarfId, result.rewards), destination), destination),
+      );
       // D4: random id instead of the server's expeditionId: the server restarts its numbering,
       // so the same id could appear twice in the chronicle list
       // D4: rewards listed in the message, e.g. "(+8 stone, +1 tool)", so the player sees where

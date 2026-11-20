@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, craftProblem, departExpedition, joinAfterExpedition, joinMessages, ogreRecruit, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION, D6: craftProblem + joinAfterExpedition + joinMessages + ogreRecruit
+import { advanceDay, raidAfterExpedition, raidMessages, resolveRaid, craftProblem, departExpedition, joinAfterExpedition, joinMessages, ogreRecruit, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION, D6: craftProblem + joinAfterExpedition + joinMessages + ogreRecruit, D7: raidAfterExpedition + raidMessages + resolveRaid
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -284,5 +284,59 @@ describe("D6 ogre species", () => {
     const save = (dwarves: unknown[]) => JSON.stringify({ version: SAVE_VERSION, colony: { ...rich([]), dwarves }, activities: [] });
     expect(parseSave(save([ogre()]))).not.toBeNull();
     expect(parseSave(save([{ ...ogre(), species: "elf" }]))).toBeNull();
+  });
+});
+
+// ---------- D7 tests: expedition consequences and defense ----------
+describe("D7 goblin raids", () => {
+  const stores = (extra: Partial<ColonyState["resources"]> = {}) => ({ wood: 15, stone: 9, food: 20, tools: 1, weapons: 0, ...extra });
+  const base = (extra: Partial<ColonyState> = {}): ColonyState => ({ day: 1, resources: stores(), dwarves: [], ...extra });
+
+  it("a Goblin Warrens success sets a raid in 2 days, other destinations don't", () => {
+    expect(raidAfterExpedition(base(), "goblin-warrens").raid).toEqual({ daysLeft: 2 });
+    const state = base();
+    expect(raidAfterExpedition(state, "old-mine")).toBe(state);
+  });
+
+  it("a failed request never starts a raid (failure path only returns the dwarf)", () => {
+    const away = departExpedition(base({ dwarves: [dwarf("a")] }), "a");
+    expect(returnFromExpedition(away, "a", {}).raid).toBeUndefined();
+  });
+
+  it("only one raid at a time: a second success changes nothing", () => {
+    const coming = base({ raid: { daysLeft: 1 } });
+    expect(raidAfterExpedition(coming, "goblin-warrens")).toBe(coming);
+  });
+
+  it("counts down and attacks at 0", () => {
+    const day1 = advanceDay(base({ raid: { daysLeft: 2 } }));
+    expect(day1.raid).toEqual({ daysLeft: 1 });
+    expect(advanceDay(day1).raid).toBeNull();
+  });
+
+  it("2 weapons defend (1 breaks), fewer weapons = half of wood/stone/food looted (rounded down)", () => {
+    expect(resolveRaid(stores({ weapons: 2 }))).toEqual(stores({ weapons: 1 }));
+    expect(resolveRaid(stores({ weapons: 1 }))).toEqual(stores({ wood: 8, stone: 5, food: 10, weapons: 1 }));
+  });
+
+  it("a weapon finished on the attack day counts for the defense", () => {
+    const smith = dwarf("s", { status: "crafting" });
+    const state = base({ dwarves: [smith], resources: stores({ weapons: 1 }), forgeJob: { dwarfId: "s", recipe: "weapon", daysLeft: 1 }, raid: { daysLeft: 1 } });
+    const next = advanceDay(state);
+    expect(next.resources.weapons).toBe(1); // 1 + 1 forged - 1 broken
+    expect(next.resources.wood).toBe(15); // nothing looted
+    expect(raidMessages(state, next)[0].tone).toBe("good");
+  });
+
+  it("chronicle: warning when the raid appears, exact losses after looting", () => {
+    expect(raidMessages(base(), base({ raid: { daysLeft: 2 } }))[0].text).toContain("attack in 2 days");
+    const state = base({ raid: { daysLeft: 1 } });
+    expect(raidMessages(state, advanceDay(state))[0].text).toContain("−7 wood");
+  });
+
+  it("save: a raid loads, a broken raid value is rejected", () => {
+    const save = (raid: unknown) => JSON.stringify({ version: SAVE_VERSION, colony: { ...base(), raid }, activities: [] });
+    expect(parseSave(save({ daysLeft: 2 }))).not.toBeNull();
+    expect(parseSave(save({ daysLeft: 9 }))).toBeNull();
   });
 });

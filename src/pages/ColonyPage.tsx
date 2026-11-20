@@ -3,7 +3,8 @@ import { Chronicle } from "../components/Chronicle";
 import { DwarfRoster } from "../components/DwarfRoster";
 // D2: workerOutput replaces the local hunger helper, so the ledger uses the exact simulation formula (tool + hunger)
 // D6: productionFor replaces production, so the ogre's own rates are shown too
-import { jobLabel, productionFor, workerOutput } from "../simulation";
+// D7: WEAPONS_NEEDED for the raid warning line
+import { jobLabel, productionFor, WEAPONS_NEEDED, workerOutput } from "../simulation";
 import { useColony } from "../state/ColonyContext";
 import type { ResourceKey } from "../types";
 
@@ -147,6 +148,8 @@ export function ColonyPage() {
             >
               <option value="crystal-cave">Crystal Cave</option>
               <option value="old-mine">The Old Mine</option>
+              {/* D7: new destination: good rewards, but a success brings a goblin raid */}
+              <option value="goblin-warrens">Goblin Warrens</option>
               <option value="blocked-pass">Blocked Pass</option>
             </select>
           </label>
@@ -168,6 +171,15 @@ export function ColonyPage() {
           </p>
           {/* D6: hint so the player can find the trigger for the new species */}
           <p>Rumour has it something big is trapped in the Old Mine…</p>
+          {/* D7: risk shown where the player decides */}
+          <p>Goblins guard the Warrens – they may follow a scout home. Keep {WEAPONS_NEEDED} weapons ready.</p>
+          {/* D7: countdown + armory count while a raid is coming, so the player can prepare */}
+          {colony.raid && (
+            <p style={{ color: "#d9534f", fontWeight: 600 }}>
+              ⚠ Goblin raid in {colony.raid.daysLeft} day{colony.raid.daysLeft > 1 ? "s" : ""} · armory{" "}
+              {colony.resources.weapons} / {WEAPONS_NEEDED}
+            </p>
+          )}
         </section>
 
         <Chronicle activities={activities} />

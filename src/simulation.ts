@@ -179,6 +179,17 @@ export function advanceDay(state: ColonyState): ColonyState {
     }
   }
 
+  // 3c. D7 raid: one day closer. At 0 the goblins attack NOW, at the END of the day (after production
+  // and the forge), so a weapon finished today already counts for the defense.
+  let raid = state.raid ? { ...state.raid } : null;
+  if (raid) {
+    raid.daysLeft -= 1;
+    if (raid.daysLeft <= 0) {
+      Object.assign(resources, resolveRaid(resources)); // defend or get looted (deterministic)
+      raid = null; // the raid is over
+    }
+  }
+
   // 4. Badge: WORKING until the dwarf has to stop (3 days hungry), then IDLE; expedition is left alone
   // D3: a dwarf who is still CRAFTING keeps that badge
   dwarves.forEach((dwarf) => {
@@ -186,7 +197,7 @@ export function advanceDay(state: ColonyState): ColonyState {
     dwarf.status = statusFor(dwarf); // D1 badge fix: uses the shared rule (same as assignDwarf)
   });
 
-  return { ...state, day: state.day + 1, resources, dwarves, forgeJob }; // D3: forgeJob saved with the day
+  return { ...state, day: state.day + 1, resources, dwarves, forgeJob, raid }; // D3: forgeJob saved with the day, D7: raid too
 }
 
 // D4: returns WHY a dwarf cannot leave, or null if they can.
@@ -260,6 +271,53 @@ export function joinMessages(before: Dwarf[], after: Dwarf[]) {
     }));
 }
 
+// ---------- D7: expedition consequences and defense ----------
+
+// D7: the NEW destination that triggers an attack, and the team's numbers
+export const RAID_DESTINATION = "goblin-warrens";
+export const RAID_DELAY = 2; // days of warning, so the player can still forge a weapon
+export const WEAPONS_NEEDED = 2; // armory threshold: this many weapons or more = the colony defends
+
+// D7: called ONLY after a SUCCESSFUL expedition (same spot as the D6 join), so a failed request
+// never starts a raid. Only one raid at a time: if one is already coming, the SAME state is returned.
+export function raidAfterExpedition(state: ColonyState, destination: string): ColonyState {
+  if (destination !== RAID_DESTINATION || state.raid) return state;
+  return { ...state, raid: { daysLeft: RAID_DELAY } };
+}
+
+// D7: the attack itself. Pure and deterministic (no randomness): same stores in = same result out.
+// Enough weapons -> defended, 1 weapon breaks (so weapons keep mattering).
+// Not enough -> goblins take HALF (rounded down) of wood, stone and food. Tools and weapons are guarded.
+export function resolveRaid(resources: Resources): Resources {
+  if (resources.weapons >= WEAPONS_NEEDED) return { ...resources, weapons: resources.weapons - 1 };
+  const keep = (amount: number) => amount - Math.floor(amount / 2); // e.g. 15 -> 7 stolen, 8 kept
+  return { ...resources, wood: keep(resources.wood), stone: keep(resources.stone), food: keep(resources.food) };
+}
+
+// D7 chronicle: compares before/after (same idea as forgeMessages), so Strict Mode can't log twice.
+// - a raid appeared -> warning with the countdown and the weapon threshold
+// - a raid ended    -> defended or looted, with the exact losses
+// WHY replay the day without the raid: production, meals and the forge also change the stores that
+// day. Running the same (pure) day again WITHOUT the raid gives the stores right before the attack.
+export function raidMessages(before: ColonyState, after: ColonyState) {
+  if (!before.raid && after.raid) {
+    return [{ text: `Goblins followed the trail home! They attack in ${after.raid.daysLeft} days – the armory needs ${WEAPONS_NEEDED} weapons.`, tone: "warning" as const }];
+  }
+  if (!before.raid || after.raid || after.day !== before.day + 1) return [];
+  const beforeAttack = advanceDay({ ...before, raid: null }).resources;
+  if (beforeAttack.weapons >= WEAPONS_NEEDED) {
+    return [{ text: "The goblins were driven off! One weapon broke in the fight.", tone: "good" as const }];
+  }
+  const losses = (["wood", "stone", "food"] as const)
+    .map((key) => [key, beforeAttack[key] - after.resources[key]] as const)
+    .filter(([, lost]) => lost > 0)
+    .map(([key, lost]) => `−${lost} ${key}`);
+  return [{
+    text: losses.length ? `Goblins looted the stores: ${losses.join(", ")}.` : "Goblins found the stores empty.",
+    tone: "warning" as const,
+  }];
+}
+
 // D3 chronicle: reports a finished craft by comparing the state before and after a day.
 // Pure function (same idea as hungerMessages), so React can't log it twice.
 export function forgeMessages(before: ColonyState, after: ColonyState) {
@@ -326,6 +384,10 @@ export function parseSave(text: string | null): SaveData | null {
   const job = colony.forgeJob ?? null;
   if (job !== null && !(isObject(job) && (job.recipe === "tool" || job.recipe === "weapon")
     && Number.isInteger(job.daysLeft) && (job.daysLeft as number) >= 1)) return null;
+  // D7: a saved raid must be "none" or a countdown of 1..RAID_DELAY days
+  const raid = colony.raid ?? null;
+  if (raid !== null && !(isObject(raid) && Number.isInteger(raid.daysLeft)
+    && (raid.daysLeft as number) >= 1 && (raid.daysLeft as number) <= RAID_DELAY)) return null;
   // D5: forge job and CRAFTING badge must match (the crafter exists and is the only crafting dwarf)
   const crafters = dwarves.filter((dwarf) => dwarf.status === "crafting").map((dwarf) => dwarf.id);
   if (crafters.join() !== (job ? [job.dwarfId] : []).join()) return null;
@@ -348,6 +410,10 @@ export function restoreAfterRefresh(state: ColonyState) {
   if (job) {
     const crafter = state.dwarves.find((dwarf) => dwarf.id === job.dwarfId);
     messages.push({ text: `${crafter?.name} resumes forging a ${job.recipe} (${job.daysLeft} day${job.daysLeft > 1 ? "s" : ""} left).` });
+  }
+  // D7: a coming raid is saved and keeps counting after a refresh (refreshing is no escape) -> remind the player
+  if (state.raid) {
+    messages.push({ text: `The goblins are still coming – attack in ${state.raid.daysLeft} day${state.raid.daysLeft > 1 ? "s" : ""}.`, tone: "warning" });
   }
   return { colony, messages };
 }

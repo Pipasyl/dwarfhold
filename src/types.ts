@@ -28,6 +28,13 @@ export interface ColonyState {
     dwarves: Dwarf[] 
     // D3: the one running forge task (one forge = one craft at a time); null/missing = forge free
     forgeJob?: ForgeJob | null
+    // D7: a goblin raid that is coming (null/missing = no raid). Only one at a time.
+    raid?: Raid | null
+}
+
+// D7: days until the goblins attack (counts down once per day in advanceDay)
+export interface Raid {
+    daysLeft: number
 }
 
 // D3: who is crafting what, and how many days of work are left
