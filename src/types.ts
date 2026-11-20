@@ -11,6 +11,8 @@ export interface Dwarf {
      assignment: JobType; 
      status: DwarfStatus; 
      specialty?: Exclude<JobType, null> 
+     // Counts consecutive days without a meal.
+     hungerDays?: number
 }
 
 export interface ColonyState { 

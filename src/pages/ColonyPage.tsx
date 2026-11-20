@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { Chronicle } from "../components/Chronicle";
 import { DwarfRoster } from "../components/DwarfRoster";
-import { jobLabel, production } from "../simulation";
+import { hungerOutput, jobLabel, production } from "../simulation";
 import { useColony } from "../state/ColonyContext";
-import type { ResourceKey } from "../types";
+import type { Dwarf, ResourceKey } from "../types";
+
+// Same rule as the simulation: hungerDays -> share of normal output (rounded per dwarf)
+const hungerShare = (dwarf: Dwarf) =>
+  hungerOutput[Math.min(dwarf.hungerDays ?? 0, 3)];
 
 export function ColonyPage() {
   const {
@@ -21,7 +25,10 @@ export function ColonyPage() {
       if (dwarf.assignment) {
         const output = production[dwarf.assignment];
         Object.entries(output).forEach(([resource, amount]) => {
-          total[resource as ResourceKey] += amount ?? 0;
+          // Hungry dwarves count with their reduced output, so the net food matches the real day
+          total[resource as ResourceKey] += Math.round(
+            (amount ?? 0) * hungerShare(dwarf),
+          );
         });
       }
       return total;
@@ -49,27 +56,39 @@ export function ColonyPage() {
           </header>
 
           <div className="job-grid">
-            {(["woodcutting", "mining", "farming"] as const).map((job) => (
-              <article key={job}>
-                <b>
-                  {job === "woodcutting"
-                    ? "🌲"
-                    : job === "mining"
-                      ? "⛏️"
-                      : "🍄"}
-                </b>
-                <h3>{jobLabel(job)}</h3>
-                <p>
-                  {
-                    colony.dwarves.filter(
-                      (dwarf) => dwarf.assignment === job,
-                    ).length
-                  }{" "}
-                  assigned
-                </p>
-                <strong>+{Object.values(production[job])[0]} / day</strong>
-              </article>
-            ))}
+            {(["woodcutting", "mining", "farming"] as const).map((job) => {
+              const workers = colony.dwarves.filter(
+                (dwarf) => dwarf.assignment === job,
+              );
+              const perDwarf = Object.values(production[job])[0] ?? 0;
+              const full = workers.length * perDwarf;
+              // Real output of this job today, with hunger applied
+              const actual = workers.reduce(
+                (sum, dwarf) => sum + Math.round(perDwarf * hungerShare(dwarf)),
+                0,
+              );
+
+              return (
+                <article key={job}>
+                  <b>
+                    {job === "woodcutting"
+                      ? "🌲"
+                      : job === "mining"
+                        ? "⛏️"
+                        : "🍄"}
+                  </b>
+                  <h3>{jobLabel(job)}</h3>
+                  <p>{workers.length} assigned</p>
+                  <strong>+{actual} / day</strong>
+                  {/* Only shown when hunger removes output, so the reason is visible */}
+                  {actual < full && (
+                    <small style={{ color: "#d9534f", display: "block" }}>
+                      −{full - actual} from hunger
+                    </small>
+                  )}
+                </article>
+              );
+            })}
           </div>
 
           <div className="net-line">
