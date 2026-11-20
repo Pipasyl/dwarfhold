@@ -4,7 +4,8 @@ import { beginExpedition } from "../api";
 // D2: toggleTool = equip/return a tool
 // D3: craftProblem/startCraft = timed forge rules, forgeMessages = chronicle text for a finished craft
 // D4: expeditionProblem/departExpedition/returnFromExpedition = resilient expedition rules
-import { advanceDay, craftProblem, departExpedition, expeditionProblem, forgeMessages, returnFromExpedition, hungerMessages, jobLabel, recipes, startCraft, statusFor, toggleTool, type RecipeId } from "../simulation";
+// D5: parseSave/restoreAfterRefresh/SAVE_VERSION = save checks and refresh policy
+import { advanceDay, craftProblem, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, recipes, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation";
 import type {
   Activity,
   ColonyState,
@@ -52,17 +53,69 @@ const initialState: ColonyState = {
   ],
 };
 
+// D5: the chronicle of a brand-new colony (moved out of useState so the load function can reuse it)
+const initialActivities: Activity[] = [
+  {
+    id: "welcome",
+    day: 12,
+    message: "The forge fires are lit. Stonehome wakes.",
+  },
+];
+
+// D5: localStorage key of the save. localStorage survives refresh AND closing the browser.
+const SAVE_KEY = "dwarfhold-save";
+
+// D5: builds the starting state: the saved game if it is valid, otherwise a new colony.
+// Corrupt/incompatible save -> new colony + a visible warning in the chronicle.
+function loadGame(): { colony: ColonyState; activities: Activity[] } {
+  let text: string | null = null;
+  try {
+    text = localStorage.getItem(SAVE_KEY); // D5: can throw if storage is blocked (private mode)
+  } catch {
+    text = null;
+  }
+  const save = parseSave(text);
+  if (!save) {
+    if (text === null) return { colony: initialState, activities: initialActivities }; // no save yet
+    return {
+      colony: initialState,
+      activities: [
+        { id: crypto.randomUUID(), day: initialState.day, message: "The old records were unreadable – a new colony begins.", tone: "warning" },
+        ...initialActivities,
+      ],
+    };
+  }
+  // D5: refresh policy (expedition dwarves come home, forge job continues) + chronicle messages
+  const { colony, messages } = restoreAfterRefresh(save.colony);
+  return {
+    colony,
+    activities: [
+      ...messages.map((message) => ({ id: crypto.randomUUID(), day: colony.day, message: message.text, tone: message.tone })),
+      ...save.activities,
+    ].slice(0, 6),
+  };
+}
+
 export function ColonyProvider({ children }: { children: ReactNode }) {
-  const [colony, setColony] = useState(initialState);
+  // D5: lazy initializer = React calls loadGame only on the first render, not on every render.
+  // WHY: reading and checking the save on every render would be wasted work.
+  const [start] = useState(loadGame);
+  const [colony, setColony] = useState(start.colony); // D5: was initialState
   const [paused, setPaused] = useState(false);
   const [expeditionPending, setExpeditionPending] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>([
-    {
-      id: "welcome",
-      day: 12,
-      message: "The forge fires are lit. Stonehome wakes.",
-    },
-  ]);
+  const [activities, setActivities] = useState<Activity[]>(start.activities); // D5: was the fixed welcome entry
+
+  // D5: autosave after every change of the colony or chronicle.
+  // NOT saved: paused, expeditionPending and the click lock (temporary screen flags, not game state;
+  // a saved lock would keep the button blocked after reload).
+  useEffect(() => {
+    try {
+      const save: SaveData = { version: SAVE_VERSION, colony, activities };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+    } catch {
+      // D5: storage full or blocked -> the game keeps running, it just isn't saved
+    }
+  }, [colony, activities]);
 
   useEffect(() => {
     if (paused) return;

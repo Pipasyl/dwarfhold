@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, departExpedition, forgeMessages, hungerMessages, returnFromExpedition, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition
+import { advanceDay, departExpedition, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -187,5 +187,51 @@ describe("D4 resilient expeditions", () => {
     const next = advanceDay(colony(5, [dwarf("a", { assignment: "woodcutting", status: "expedition", hasTool: true })]));
     expect(next.resources).toMatchObject({ wood: 0, food: 4 });
     expect(next.dwarves[0].status).toBe("expedition");
+  });
+});
+
+// ---------- D5 tests: save/restore and the refresh policy ----------
+describe("D5 save and restore", () => {
+  // helper: the text autosave would write for this colony
+  const saveText = (state: ColonyState, version = SAVE_VERSION) =>
+    JSON.stringify({ version, colony: state, activities: [{ id: "x", day: 1, message: "hi" }] });
+
+  it("a valid save is restored unchanged", () => {
+    const state = colony(5, [dwarf("a", { assignment: "mining", status: "working", hasTool: true, hungerDays: 1 })]);
+    expect(parseSave(saveText(state))).toEqual({ version: SAVE_VERSION, colony: state, activities: [{ id: "x", day: 1, message: "hi" }] });
+  });
+
+  it("no save, broken JSON or wrong version -> null (fallback to a new colony)", () => {
+    expect(parseSave(null)).toBeNull();
+    expect(parseSave("{not json")).toBeNull();
+    expect(parseSave(saveText(colony(5, [dwarf("a")]), 99))).toBeNull();
+  });
+
+  it("missing or negative resources, or a broken dwarf -> null", () => {
+    expect(parseSave(saveText(colony(-1, [dwarf("a")])))).toBeNull();
+    const noWeapons = colony(5, [dwarf("a")]) as unknown as { resources: Record<string, number> };
+    delete noWeapons.resources.weapons;
+    expect(parseSave(JSON.stringify({ version: SAVE_VERSION, colony: noWeapons, activities: [] }))).toBeNull();
+    expect(parseSave(saveText(colony(5, [dwarf("a", { status: "flying" as never })])))).toBeNull();
+  });
+
+  it("crafting dwarf without a forge job (would be stuck) -> null", () => {
+    expect(parseSave(saveText(colony(5, [dwarf("a", { status: "crafting" })])))).toBeNull();
+  });
+
+  it("refresh during an expedition: dwarf comes home with no rewards and keeps the tool", () => {
+    const away = colony(5, [dwarf("a", { assignment: "mining", status: "expedition", hasTool: true })]);
+    const { colony: after, messages } = restoreAfterRefresh(away);
+    expect(after.dwarves[0]).toMatchObject({ status: "working", hasTool: true });
+    expect(after.resources).toEqual(away.resources);
+    expect(messages[0].tone).toBe("warning");
+  });
+
+  it("refresh during a forge job: the job continues unchanged", () => {
+    const forging = { ...colony(5, [dwarf("a", { status: "crafting" })]), forgeJob: { dwarfId: "a", recipe: "weapon" as const, daysLeft: 2 } };
+    expect(parseSave(saveText(forging))?.colony.forgeJob).toEqual({ dwarfId: "a", recipe: "weapon", daysLeft: 2 });
+    const { colony: after, messages } = restoreAfterRefresh(forging);
+    expect(after).toBe(forging);
+    expect(messages[0].text).toContain("2 days left");
   });
 });
