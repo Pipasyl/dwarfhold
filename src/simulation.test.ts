@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, craft, hungerMessages, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: craft + toggleTool
+import { advanceDay, forgeMessages, hungerMessages, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed)
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -94,9 +94,58 @@ describe("D2 tools and weapons", () => {
   });
 
   it("forge checks ALL materials and an invalid attempt changes nothing", () => {
-    const rich = { ...colony(0, []), resources: { wood: 5, stone: 4, food: 0, tools: 0, weapons: 0 } };
-    expect(craft(rich, "weapon").resources).toMatchObject({ wood: 3, stone: 0, weapons: 1 });
-    const noStone = { ...colony(0, []), resources: { wood: 9, stone: 1, food: 0, tools: 0, weapons: 0 } };
-    expect(craft(noStone, "tool")).toBe(noStone); // starter bug: stone went negative here
+    // D3: uses startCraft now (crafting is timed), materials are taken at the start
+    const rich = { ...colony(0, [dwarf("a")]), resources: { wood: 5, stone: 4, food: 0, tools: 0, weapons: 0 } };
+    expect(startCraft(rich, "weapon", "a").resources).toMatchObject({ wood: 3, stone: 0, weapons: 0 });
+    const noStone = { ...colony(0, [dwarf("a")]), resources: { wood: 9, stone: 1, food: 0, tools: 0, weapons: 0 } };
+    expect(startCraft(noStone, "tool", "a")).toBe(noStone); // starter bug: stone went negative here
+  });
+});
+
+// ---------- D3 tests: crafting takes a dwarf and time ----------
+describe("D3 timed crafting", () => {
+  const stocked = (dwarves: Dwarf[]) => ({
+    ...colony(10, dwarves), resources: { wood: 10, stone: 10, food: 10, tools: 0, weapons: 0 },
+  });
+
+  it("start: materials taken, dwarf CRAFTING, no item yet", () => {
+    const next = startCraft(stocked([dwarf("a", { assignment: "mining", status: "working" })]), "weapon", "a");
+    expect(next.resources).toMatchObject({ wood: 8, stone: 6, weapons: 0 });
+    expect(next.dwarves[0].status).toBe("crafting");
+    expect(next.forgeJob).toEqual({ dwarfId: "a", recipe: "weapon", daysLeft: 2 });
+  });
+
+  it("the crafter does not do their job; the item arrives after the recipe's days, then back to work", () => {
+    let state = startCraft(stocked([dwarf("a", { assignment: "mining", status: "working" })]), "weapon", "a");
+    state = advanceDay(state);
+    expect(state.resources.stone).toBe(6); // no mining while crafting
+    expect(state.resources.weapons).toBe(0);
+    state = advanceDay(state);
+    expect(state.resources.weapons).toBe(1); // exactly once, after 2 days
+    expect(state.forgeJob).toBeNull();
+    expect(state.dwarves[0].status).toBe("working"); // back to their own job
+    expect(forgeMessages({ ...state, forgeJob: { dwarfId: "a", recipe: "weapon", daysLeft: 1 } }, state)).toHaveLength(1);
+  });
+
+  it("invalid attempts change nothing: forge busy, away, too hungry, unknown dwarf", () => {
+    const busy = startCraft(stocked([dwarf("a"), dwarf("b")]), "tool", "a");
+    expect(startCraft(busy, "tool", "b")).toBe(busy); // one forge = one craft at a time
+    const away = stocked([dwarf("a", { status: "expedition" })]);
+    expect(startCraft(away, "tool", "a")).toBe(away);
+    const starving = stocked([dwarf("a", { hungerDays: 3 })]);
+    expect(startCraft(starving, "tool", "a")).toBe(starving);
+    expect(startCraft(away, "tool", "nobody")).toBe(away);
+  });
+
+  it("a crafter who is 3+ days hungry pauses the craft", () => {
+    const state = { ...colony(0, [dwarf("a", { status: "crafting", hungerDays: 2 })]), forgeJob: { dwarfId: "a", recipe: "tool" as const, daysLeft: 1 } };
+    const next = advanceDay(state); // no food -> 3rd hungry day
+    expect(next.forgeJob?.daysLeft).toBe(1);
+    expect(next.resources.tools).toBe(0);
+  });
+
+  it("tools can't be swapped while crafting", () => {
+    const state = { ...stocked([dwarf("a", { status: "crafting" })]), resources: { wood: 0, stone: 0, food: 0, tools: 1, weapons: 0 } };
+    expect(toggleTool(state, "a")).toBe(state);
   });
 });

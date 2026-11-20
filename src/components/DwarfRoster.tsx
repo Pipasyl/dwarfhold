@@ -43,6 +43,8 @@ export function DwarfRoster({ dwarves, onAssign, onToggleTool, freeTools }: Prop
       <div className="dwarf-list">
         {dwarves.map((dwarf) => {
           const isAway = dwarf.status === "expedition";
+          // D3: job and tool are locked while away OR while crafting at the forge
+          const isLocked = isAway || dwarf.status === "crafting";
           const specialty = dwarf.specialty
             ? `Skilled in ${jobLabel(dwarf.specialty)}`
             : "Generalist";
@@ -78,7 +80,7 @@ export function DwarfRoster({ dwarves, onAssign, onToggleTool, freeTools }: Prop
 
                 <select
                   value={dwarf.assignment ?? ""}
-                  disabled={isAway}
+                  disabled={isLocked} // D3: was isAway, now also locked while crafting
                   onChange={(event) =>
                     onAssign(
                       dwarf.id,
@@ -98,7 +100,7 @@ export function DwarfRoster({ dwarves, onAssign, onToggleTool, freeTools }: Prop
                     expeditions) or when there is no free tool to equip. */}
                 <button
                   className="tool-button"
-                  disabled={isAway || (!dwarf.hasTool && freeTools < 1)}
+                  disabled={isLocked || (!dwarf.hasTool && freeTools < 1)} // D3: also locked while crafting
                   onClick={() => onToggleTool(dwarf.id)}
                 >
                   {dwarf.hasTool ? "Return tool" : "Equip tool (+1/day)"}

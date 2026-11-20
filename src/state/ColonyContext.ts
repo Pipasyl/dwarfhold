@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { RecipeId } from "../simulation"; // D3: recipe id for startForge
 import type { Activity, ColonyState, JobType } from "../types";
 
 export interface ColonyContextValue {
@@ -8,8 +9,7 @@ export interface ColonyContextValue {
   expeditionPending: boolean;
   togglePaused: () => void;
   assignDwarf: (id: string, assignment: JobType) => void;
-  craftTool: () => void;
-  craftWeapon: () => void; // D2: forge a weapon (2 wood + 4 stone)
+  startForge: (recipe: RecipeId, dwarfId: string) => void; // D3: start a timed craft with a dwarf (replaces craftTool/craftWeapon)
   toggleTool: (dwarfId: string) => void; // D2: equip a free tool or return it
   sendExpedition: (dwarfId: string, destination: string) => Promise<void>;
 }

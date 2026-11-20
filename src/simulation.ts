@@ -19,9 +19,11 @@ export const workerOutput = (dwarf: Dwarf, amount: number) =>
 
 // D2: forge recipes in one place, so the forge page, the check and the tests all use the same costs.
 // Weapon = 2 wood + 4 stone: costs more than a tool and leans on stone (mining/expeditions matter).
+// D3: "days" = how many simulation days the crafting takes (same 8 s day clock as production,
+// so the Pause button also pauses the forge). A weapon takes longer because it costs more.
 export const recipes = {
-  tool: { cost: { wood: 3, stone: 2 }, result: "tools" },
-  weapon: { cost: { wood: 2, stone: 4 }, result: "weapons" },
+  tool: { cost: { wood: 3, stone: 2 }, result: "tools", days: 1 },
+  weapon: { cost: { wood: 2, stone: 4 }, result: "weapons", days: 2 },
 } as const;
 export type RecipeId = keyof typeof recipes;
 
@@ -30,15 +32,37 @@ export type RecipeId = keyof typeof recipes;
 export const canCraft = (resources: Resources, recipe: RecipeId) =>
   Object.entries(recipes[recipe].cost).every(([key, amount]) => resources[key as keyof Resources] >= amount);
 
-// D2: crafts one item. An invalid attempt returns the SAME state, so nothing changes.
-export function craft(state: ColonyState, recipe: RecipeId): ColonyState {
-  if (!canCraft(state.resources, recipe)) return state;
+// D3: returns WHY a craft cannot start (text for the chronicle), or null if it can start.
+// Eligible = present, not already crafting, and able to work (not 3+ days hungry).
+// One forge = one craft at a time. Materials are checked last, after the dwarf.
+export function craftProblem(state: ColonyState, recipe: RecipeId, dwarfId: string): string | null {
+  const dwarf = state.dwarves.find((item) => item.id === dwarfId);
+  if (!dwarf) return "Choose a dwarf to work the forge.";
+  if (state.forgeJob) return "The forge is already in use.";
+  if (dwarf.status === "expedition") return `${dwarf.name} is away and cannot work the forge.`;
+  if (outputShare(dwarf) === 0) return `${dwarf.name} is too hungry to work the forge.`;
+  if (!canCraft(state.resources, recipe)) {
+    const { wood, stone } = recipes[recipe].cost;
+    return `The forge needs ${wood} wood and ${stone} stone for a ${recipe}.`;
+  }
+  return null;
+}
+
+// D3: STARTS crafting (replaces the instant D2 craft). Materials are taken now, so they can't be
+// spent twice while the item is being made. The dwarf keeps their job but becomes CRAFTING.
+// An invalid attempt returns the SAME state, so neither workers nor resources change.
+export function startCraft(state: ColonyState, recipe: RecipeId, dwarfId: string): ColonyState {
+  if (craftProblem(state, recipe, dwarfId)) return state;
   const resources = { ...state.resources };
   Object.entries(recipes[recipe].cost).forEach(([key, amount]) => {
     resources[key as keyof Resources] -= amount;
   });
-  resources[recipes[recipe].result] += 1;
-  return { ...state, resources };
+  return {
+    ...state,
+    resources,
+    dwarves: state.dwarves.map((item) => (item.id === dwarfId ? { ...item, status: "crafting" } : item)),
+    forgeJob: { dwarfId, recipe, daysLeft: recipes[recipe].days },
+  };
 }
 
 // D2: equip a free tool, or return the dwarf's tool to storage.
@@ -46,7 +70,8 @@ export function craft(state: ColonyState, recipe: RecipeId): ColonyState {
 // dwarf away (D4 decides tools on expeditions), unknown dwarf, or no free tool to equip.
 export function toggleTool(state: ColonyState, dwarfId: string): ColonyState {
   const dwarf = state.dwarves.find((item) => item.id === dwarfId);
-  if (!dwarf || dwarf.status === "expedition") return state;
+  // D3: also locked while CRAFTING, so the crafter's equipment can't change mid-task
+  if (!dwarf || dwarf.status === "expedition" || dwarf.status === "crafting") return state;
   if (!dwarf.hasTool && state.resources.tools < 1) return state;
   return {
     ...state,
@@ -90,7 +115,9 @@ export function advanceDay(state: ColonyState): ColonyState {
   const dwarves = state.dwarves.map((dwarf) => ({ ...dwarf }));
 
   // A dwarf on an expedition is away and cannot do daily work
-  const canWork = (dwarf: Dwarf) => Boolean(dwarf.assignment) && dwarf.status !== "expedition";
+  // D3: a CRAFTING dwarf is at the forge, so they don't do their normal job either (one activity per dwarf)
+  const canWork = (dwarf: Dwarf) =>
+    Boolean(dwarf.assignment) && dwarf.status !== "expedition" && dwarf.status !== "crafting";
 
   // Adds the dwarf's daily output (D2: +1 with a tool), reduced by hunger and rounded to whole numbers
   const harvest = (dwarf: Dwarf) => {
@@ -119,13 +146,35 @@ export function advanceDay(state: ColonyState): ColonyState {
   // 3. Other workers produce after meals, so today's hunger already counts
   others.filter(canWork).forEach(harvest);
 
+  // 3b. D3 forge: one more day of work, but only if the crafter can work today (after meals,
+  // so today's hunger counts). 3+ hungry days = the craft PAUSES until the dwarf eats (D1 rule).
+  let forgeJob = state.forgeJob ? { ...state.forgeJob } : null;
+  if (forgeJob) {
+    const crafter = dwarves.find((dwarf) => dwarf.id === forgeJob!.dwarfId);
+    if (crafter && outputShare(crafter) > 0) forgeJob.daysLeft -= 1;
+    if (forgeJob.daysLeft <= 0) {
+      resources[recipes[forgeJob.recipe].result] += 1; // finished item goes into the stock exactly once
+      if (crafter) crafter.status = statusFor(crafter); // back to their own job automatically
+      forgeJob = null; // forge is free again
+    }
+  }
+
   // 4. Badge: WORKING until the dwarf has to stop (3 days hungry), then IDLE; expedition is left alone
+  // D3: a dwarf who is still CRAFTING keeps that badge
   dwarves.forEach((dwarf) => {
-    if (dwarf.status === "expedition") return;
+    if (dwarf.status === "expedition" || dwarf.status === "crafting") return;
     dwarf.status = statusFor(dwarf); // D1 badge fix: uses the shared rule (same as assignDwarf)
   });
 
-  return { ...state, day: state.day + 1, resources, dwarves };
+  return { ...state, day: state.day + 1, resources, dwarves, forgeJob }; // D3: forgeJob saved with the day
+}
+
+// D3 chronicle: reports a finished craft by comparing the state before and after a day.
+// Pure function (same idea as hungerMessages), so React can't log it twice.
+export function forgeMessages(before: ColonyState, after: ColonyState) {
+  if (!before.forgeJob || after.forgeJob) return [];
+  const crafter = after.dwarves.find((dwarf) => dwarf.id === before.forgeJob!.dwarfId);
+  return [{ text: `${crafter?.name ?? "A dwarf"} finished forging a ${before.forgeJob.recipe}.`, tone: "good" as const }];
 }
 
 export const jobLabel = (job: JobType) => job ? ({ 

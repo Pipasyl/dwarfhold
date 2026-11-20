@@ -5,3 +5,6 @@
 
 /* D2: equip/return tool button on the dwarf card, styled like the job dropdown above it */
 .tool-button{display:block;width:100%;margin-top:5px;background:#100e0b;color:#d8c8ae;border:1px solid #4d3f30;padding:4px;font:600 11px Barlow Condensed;cursor:pointer}.tool-button:disabled{opacity:.45;cursor:default}
+
+/* D3: smith picker on the forge page, crafting dot (orange-red) on the dwarf card, disabled forge buttons */
+.smith-picker{display:block;min-width:190px;font:600 10px Barlow Condensed;letter-spacing:.1em;color:#9e8566}.smith-picker select{display:block;width:100%;margin-top:5px;background:#100e0b;color:#d8c8ae;border:1px solid #4d3f30;padding:5px}.portrait i.crafting{background:#e0703a}.recipe button:disabled{opacity:.45;cursor:default}

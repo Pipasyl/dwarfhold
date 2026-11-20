@@ -22,7 +22,8 @@ export function ColonyPage() {
     (total, dwarf) => {
       // D1 ledger fix: a dwarf on an expedition produces nothing (same rule as advanceDay),
       // so only present workers count here. Meals below still count everyone, because away dwarves eat too.
-      if (dwarf.assignment && dwarf.status !== "expedition") {
+      // D3: a CRAFTING dwarf is at the forge and produces nothing either (same rule as advanceDay)
+      if (dwarf.assignment && dwarf.status !== "expedition" && dwarf.status !== "crafting") {
         const output = production[dwarf.assignment];
         Object.entries(output).forEach(([resource, amount]) => {
           // Hungry dwarves count with their reduced output, so the net food matches the real day
@@ -67,7 +68,8 @@ export function ColonyPage() {
                 (dwarf) => dwarf.assignment === job,
               );
               // D1 ledger fix: only workers who are present produce; "N assigned" still shows everyone with the job
-              const present = workers.filter((dwarf) => dwarf.status !== "expedition");
+              // D3: crafting dwarves are left out too, because they are at the forge
+              const present = workers.filter((dwarf) => dwarf.status !== "expedition" && dwarf.status !== "crafting");
               const perDwarf = Object.values(production[job])[0] ?? 0;
               // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
               // D2: "full" = output without hunger, including +1 for each worker with a tool
