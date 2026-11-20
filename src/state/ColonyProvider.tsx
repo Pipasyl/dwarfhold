@@ -106,6 +106,9 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
   const [paused, setPaused] = useState(false);
   const [expeditionPending, setExpeditionPending] = useState(false);
   const [activities, setActivities] = useState<Activity[]>(start.activities); // D5: was the fixed welcome entry
+  // D7: attack result for the popup. Screen state only (NOT saved, same as paused): after a reload
+  // the result is still in the chronicle, so nothing is lost.
+  const [raidReport, setRaidReport] = useState<{ text: string; tone: "good" | "warning" } | null>(null);
 
   // D5: autosave after every change of the colony or chronicle.
   // NOT saved: paused, expeditionPending and the click lock (temporary screen flags, not game state;
@@ -140,13 +143,22 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
   // development (Strict Mode), which would write every chronicle entry twice.
   useEffect(() => {
     const before = previousColony.current;
+    // D7: computed once, so the same messages go to the chronicle AND (on attack day) the popup
+    const raidNews = raidMessages(before, colony);
     const messages = [
       ...hungerMessages(before.dwarves, colony.dwarves),
       ...forgeMessages(before, colony), // D3: "X finished forging a tool" when a craft completes
       ...joinMessages(before.dwarves, colony.dwarves), // D6: "Grukk ... joins Stonehome!" when the ogre arrives
-      ...raidMessages(before, colony), // D7: raid warning, then "driven off" or "looted" with the losses
+      ...raidNews, // D7: raid warning, then "driven off" or "looted" with the losses
     ];
     previousColony.current = colony;
+    // D7: the raid just ENDED (was coming before, gone now) -> show the result as a popup and pause
+    // the game until the player clicks OK. WHY: a raid is a big moment; like a RimWorld raid letter,
+    // the pause makes sure the player sees it even when looking at another part of the screen.
+    if (before.raid && !colony.raid && raidNews.length > 0) {
+      setRaidReport(raidNews[0]);
+      setPaused(true);
+    }
     if (messages.length === 0) return;
 
     setActivities((current) =>
@@ -289,6 +301,12 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     startForge: forge, // D3: one action for both recipes, with the chosen dwarf (replaces craftTool/craftWeapon)
     toggleTool: equipOrReturnTool,
     sendExpedition,
+    raidReport, // D7: popup content
+    // D7: OK button: close the popup and let the days run again
+    closeRaidReport: () => {
+      setRaidReport(null);
+      setPaused(false);
+    },
   };
 
   return <ColonyContext value={value}>{children}</ColonyContext>;

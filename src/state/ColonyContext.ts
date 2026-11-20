@@ -12,6 +12,9 @@ export interface ColonyContextValue {
   startForge: (recipe: RecipeId, dwarfId: string) => void; // D3: start a timed craft with a dwarf (replaces craftTool/craftWeapon)
   toggleTool: (dwarfId: string) => void; // D2: equip a free tool or return it
   sendExpedition: (dwarfId: string, destination: string) => Promise<void>;
+  // D7: result of the attack shown as a popup (null = no popup) + the OK button that closes it
+  raidReport: { text: string; tone: "good" | "warning" } | null;
+  closeRaidReport: () => void;
 }
 
 export const ColonyContext = createContext<ColonyContextValue | null>(null);

@@ -8,3 +8,14 @@
 
 /* D3: smith picker on the forge page, crafting dot (orange-red) on the dwarf card, disabled forge buttons */
 .smith-picker{display:block;min-width:190px;font:600 10px Barlow Condensed;letter-spacing:.1em;color:#9e8566}.smith-picker select{display:block;width:100%;margin-top:5px;background:#100e0b;color:#d8c8ae;border:1px solid #4d3f30;padding:5px}.portrait i.crafting{background:#e0703a}.recipe button:disabled{opacity:.45;cursor:default}
+/* D7 UI: expedition help text was 11px and dark -> bigger and lighter so it is readable */
+.expedition>p{font-size:15px;line-height:1.45;color:#b09a7c}
+/* D7: raid banner under the resource bar (visible on every page) */
+.raid-banner{margin:-4px 0 16px;padding:12px 18px;border:1px solid #d9534f;background:#3a1714;color:#ffb3a1;font:700 17px Barlow Condensed;letter-spacing:.04em}
+/* D7: attack result popup: dark overlay over the whole screen + centered box */
+.raid-overlay{position:fixed;inset:0;background:#000b;display:grid;place-items:center;z-index:10}
+.raid-popup{width:min(460px,90vw);padding:26px 28px;background:#191510;border:2px solid #d9534f;text-align:center;box-shadow:0 20px 60px #000}
+.raid-popup.good{border-color:#75b66e}
+.raid-popup h2{font:700 28px Almendra;margin:0 0 12px}
+.raid-popup p{font:18px Barlow Condensed;color:#eadfca;margin:0 0 20px}
+.raid-popup button{border:0;background:#c18b3f;color:#160f08;padding:10px 30px;font:700 15px Barlow Condensed;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}
