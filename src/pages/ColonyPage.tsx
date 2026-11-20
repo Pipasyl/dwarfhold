@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Chronicle } from "../components/Chronicle";
 import { DwarfRoster } from "../components/DwarfRoster";
 // D2: workerOutput replaces the local hunger helper, so the ledger uses the exact simulation formula (tool + hunger)
-import { jobLabel, production, workerOutput } from "../simulation";
+// D6: productionFor replaces production, so the ogre's own rates are shown too
+import { jobLabel, productionFor, workerOutput } from "../simulation";
 import { useColony } from "../state/ColonyContext";
 import type { ResourceKey } from "../types";
 
@@ -24,7 +25,7 @@ export function ColonyPage() {
       // so only present workers count here. Meals below still count everyone, because away dwarves eat too.
       // D3: a CRAFTING dwarf is at the forge and produces nothing either (same rule as advanceDay)
       if (dwarf.assignment && dwarf.status !== "expedition" && dwarf.status !== "crafting") {
-        const output = production[dwarf.assignment];
+        const output = productionFor(dwarf)[dwarf.assignment]; // D6: ogre has its own production table
         Object.entries(output).forEach(([resource, amount]) => {
           // Hungry dwarves count with their reduced output, so the net food matches the real day
           // D2: same shared formula as the simulation, so the tool bonus is included too
@@ -70,13 +71,14 @@ export function ColonyPage() {
               // D1 ledger fix: only workers who are present produce; "N assigned" still shows everyone with the job
               // D3: crafting dwarves are left out too, because they are at the forge
               const present = workers.filter((dwarf) => dwarf.status !== "expedition" && dwarf.status !== "crafting");
-              const perDwarf = Object.values(production[job])[0] ?? 0;
+              // D6: base amount PER WORKER (was one number for everyone), because the ogre has other rates
+              const base = (dwarf: (typeof present)[number]) => Object.values(productionFor(dwarf)[job])[0] ?? 0;
               // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
               // D2: "full" = output without hunger, including +1 for each worker with a tool
-              const full = present.reduce((sum, dwarf) => sum + perDwarf + (dwarf.hasTool ? 1 : 0), 0);
+              const full = present.reduce((sum, dwarf) => sum + base(dwarf) + (dwarf.hasTool ? 1 : 0), 0);
               // Real output of this job today, with hunger and tools applied (D2: shared formula)
               const actual = present.reduce(
-                (sum, dwarf) => sum + workerOutput(dwarf, perDwarf),
+                (sum, dwarf) => sum + workerOutput(dwarf, base(dwarf)), // D6: per-worker base
                 0,
               );
 
@@ -164,6 +166,8 @@ export function ColonyPage() {
             An equipped tool travels with the dwarf (no bonus while away). A failed
             trip brings the dwarf back empty-handed.
           </p>
+          {/* D6: hint so the player can find the trigger for the new species */}
+          <p>Rumour has it something big is trapped in the Old Mine…</p>
         </section>
 
         <Chronicle activities={activities} />

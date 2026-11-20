@@ -6,6 +6,16 @@ export const production: Record<Exclude<JobType, null>, Partial<Resources>> = {
   woodcutting: { wood: 3 }, mining: { stone: 2 }, farming: { food: 4 },
 };
 
+// D6: the ogre's OWN production rates (same three jobs, different numbers).
+// WHY: an ogre is huge and strong -> great at heavy work (wood, stone), but bad at careful mushroom farming.
+export const ogreProduction: Record<Exclude<JobType, null>, Partial<Resources>> = {
+  woodcutting: { wood: 5 }, mining: { stone: 4 }, farming: { food: 1 },
+};
+
+// D6: picks the right production table for a colony member (ogre table or the normal dwarf table).
+// Used by advanceDay AND the Shift Ledger, so the screen always shows the real numbers.
+export const productionFor = (member: { species?: "ogre" }) => (member.species === "ogre" ? ogreProduction : production);
+
 // Share of normal output by days in a row without a meal (3 or more days = stops working)
 export const hungerOutput = [1, 0.5, 0.3, 0];
 
@@ -27,6 +37,11 @@ export const recipes = {
 } as const;
 export type RecipeId = keyof typeof recipes;
 
+// D6: how many days a craft takes for THIS smith. Ogre ability: a weapon takes only 1 day
+// (raw strength at the anvil). Everyone else uses the normal recipe time.
+export const craftDays = (smith: Dwarf | undefined, recipe: RecipeId): number =>
+  smith?.species === "ogre" && recipe === "weapon" ? 1 : recipes[recipe].days;
+
 // D2: true only if the stock has EVERY material of the recipe.
 // WHY: the starter only checked wood, so stone could go negative.
 export const canCraft = (resources: Resources, recipe: RecipeId) =>
@@ -41,6 +56,9 @@ export function craftProblem(state: ColonyState, recipe: RecipeId, dwarfId: stri
   if (state.forgeJob) return "The forge is already in use.";
   if (dwarf.status === "expedition") return `${dwarf.name} is away and cannot work the forge.`;
   if (outputShare(dwarf) === 0) return `${dwarf.name} is too hungry to work the forge.`;
+  // D6: ogre limitation: huge hands are too clumsy for fine tool work. Checked before materials,
+  // so the player learns the real reason (the ogre can never do it, even with enough materials).
+  if (dwarf.species === "ogre" && recipe === "tool") return `${dwarf.name}'s huge hands are too clumsy to forge a tool.`;
   if (!canCraft(state.resources, recipe)) {
     const { wood, stone } = recipes[recipe].cost;
     return `The forge needs ${wood} wood and ${stone} stone for a ${recipe}.`;
@@ -61,7 +79,8 @@ export function startCraft(state: ColonyState, recipe: RecipeId, dwarfId: string
     ...state,
     resources,
     dwarves: state.dwarves.map((item) => (item.id === dwarfId ? { ...item, status: "crafting" } : item)),
-    forgeJob: { dwarfId, recipe, daysLeft: recipes[recipe].days },
+    // D6: days come from craftDays, so an ogre's weapon takes 1 day instead of 2
+    forgeJob: { dwarfId, recipe, daysLeft: craftDays(state.dwarves.find((item) => item.id === dwarfId), recipe) },
   };
 }
 
@@ -122,7 +141,8 @@ export function advanceDay(state: ColonyState): ColonyState {
   // Adds the dwarf's daily output (D2: +1 with a tool), reduced by hunger and rounded to whole numbers
   const harvest = (dwarf: Dwarf) => {
     if (!dwarf.assignment) return;
-    Object.entries(production[dwarf.assignment]).forEach(([resource, amount]) => {
+    // D6: productionFor instead of production, so the ogre uses its own production table
+    Object.entries(productionFor(dwarf)[dwarf.assignment]).forEach(([resource, amount]) => {
       resources[resource as keyof Resources] += workerOutput(dwarf, amount ?? 0); // D2: tool bonus + hunger via shared formula
     });
   };
@@ -208,6 +228,38 @@ export function returnFromExpedition(state: ColonyState, dwarfId: string, reward
   };
 }
 
+// ---------- D6: new species (ogre) ----------
+
+// D6: the destination our team chose. The ogre was trapped in the Old Mine.
+export const OGRE_DESTINATION = "old-mine";
+
+// D6: the ogre who joins. Arrives unassigned and idle, so the player decides the job.
+export const ogreRecruit: Dwarf = {
+  id: "ogre-1", name: "Grukk Stonefist", title: "Mountain Ogre", icon: "🧌",
+  assignment: null, status: "idle", species: "ogre",
+};
+
+// D6: called ONLY after a SUCCESSFUL expedition (failures never reach it).
+// The ogre joins if the destination is the Old Mine AND no ogre is in the colony yet.
+// "Exactly once": the second success finds the ogre already there and returns the SAME state.
+// WHY no extra "joined" flag: the roster itself is the proof, so the two can never disagree.
+export function joinAfterExpedition(state: ColonyState, destination: string): ColonyState {
+  if (destination !== OGRE_DESTINATION) return state;
+  if (state.dwarves.some((member) => member.species === "ogre")) return state;
+  return { ...state, dwarves: [...state.dwarves, { ...ogreRecruit }] };
+}
+
+// D6 chronicle: compares before/after (same idea as hungerMessages), so React Strict Mode
+// can't write the "joined" message twice.
+export function joinMessages(before: Dwarf[], after: Dwarf[]) {
+  return after
+    .filter((member) => !before.some((old) => old.id === member.id))
+    .map((member) => ({
+      text: `${member.name}, a ${member.title.toLowerCase()} trapped in the Old Mine, joins Stonehome!`,
+      tone: "good" as const,
+    }));
+}
+
 // D3 chronicle: reports a finished craft by comparing the state before and after a day.
 // Pure function (same idea as hungerMessages), so React can't log it twice.
 export function forgeMessages(before: ColonyState, after: ColonyState) {
@@ -243,7 +295,8 @@ function isDwarf(value: unknown): value is Dwarf {
     && jobs.includes(value.assignment as JobType) && statuses.includes(value.status as string)
     && (value.specialty === undefined || (value.specialty !== null && jobs.includes(value.specialty as JobType)))
     && (value.hungerDays === undefined || isCount(value.hungerDays))
-    && (value.hasTool === undefined || typeof value.hasTool === "boolean");
+    && (value.hasTool === undefined || typeof value.hasTool === "boolean")
+    && (value.species === undefined || value.species === "ogre"); // D6: only "no species" (dwarf) or "ogre" is valid
 }
 
 function isActivity(value: unknown): value is Activity {

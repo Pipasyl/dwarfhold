@@ -45,9 +45,12 @@ export function DwarfRoster({ dwarves, onAssign, onToggleTool, freeTools }: Prop
           const isAway = dwarf.status === "expedition";
           // D3: job and tool are locked while away OR while crafting at the forge
           const isLocked = isAway || dwarf.status === "crafting";
-          const specialty = dwarf.specialty
-            ? `Skilled in ${jobLabel(dwarf.specialty)}`
-            : "Generalist";
+          // D6: the ogre gets its own label (its title already says "Mountain Ogre")
+          const specialty = dwarf.species === "ogre"
+            ? "Heavy labourer"
+            : dwarf.specialty
+              ? `Skilled in ${jobLabel(dwarf.specialty)}`
+              : "Generalist";
           const hunger = hungerText(dwarf.hungerDays ?? 0);
 
           return (

@@ -18,6 +18,8 @@ export interface Dwarf {
      hungerDays?: number
      // D2: true while this dwarf carries a tool (max 1 per dwarf, so yes/no is enough)
      hasTool?: boolean
+     // D6: species of this colony member. Missing = dwarf, so all old dwarves and old saves stay valid.
+     species?: "ogre"
 }
 
 export interface ColonyState { 

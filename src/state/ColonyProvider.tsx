@@ -5,7 +5,8 @@ import { beginExpedition } from "../api";
 // D3: craftProblem/startCraft = timed forge rules, forgeMessages = chronicle text for a finished craft
 // D4: expeditionProblem/departExpedition/returnFromExpedition = resilient expedition rules
 // D5: parseSave/restoreAfterRefresh/SAVE_VERSION = save checks and refresh policy
-import { advanceDay, craftProblem, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, recipes, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation";
+// D6: joinAfterExpedition/joinMessages = the ogre joins after the first Old Mine success; craftDays = smith-specific craft time
+import { advanceDay, craftDays, craftProblem, joinAfterExpedition, joinMessages, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation"; // D6: recipes removed (craftDays now gives the time)
 import type {
   Activity,
   ColonyState,
@@ -141,6 +142,7 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     const messages = [
       ...hungerMessages(before.dwarves, colony.dwarves),
       ...forgeMessages(before, colony), // D3: "X finished forging a tool" when a craft completes
+      ...joinMessages(before.dwarves, colony.dwarves), // D6: "Grukk ... joins Stonehome!" when the ogre arrives
     ];
     previousColony.current = colony;
     if (messages.length === 0) return;
@@ -206,7 +208,8 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     }
     const dwarf = colony.dwarves.find((item) => item.id === dwarfId);
     setColony((current) => startCraft(current, recipe, dwarfId));
-    log(`${dwarf?.name} starts forging a ${recipe} – ready on day ${colony.day + recipes[recipe].days}.`);
+    // D6: craftDays instead of recipes[recipe].days, so the message is right for the ogre's 1-day weapon
+    log(`${dwarf?.name} starts forging a ${recipe} – ready on day ${colony.day + craftDays(dwarf, recipe)}.`);
   }
 
   // D2: equip a free tool, or return it to storage. toggleTool re-checks against the newest state,
@@ -246,7 +249,9 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
 
     try {
       const result = await beginExpedition(dwarf.id, destination);
-      setColony((current) => returnFromExpedition(current, dwarfId, result.rewards)); // D4: rewards once
+      // D4: rewards once. D6: in the SAME update the ogre may join (only here = only on success).
+      // WHY the same update: rewards and the new member arrive together, so neither can happen twice or alone.
+      setColony((current) => joinAfterExpedition(returnFromExpedition(current, dwarfId, result.rewards), destination));
       // D4: random id instead of the server's expeditionId: the server restarts its numbering,
       // so the same id could appear twice in the chronicle list
       // D4: rewards listed in the message, e.g. "(+8 stone, +1 tool)", so the player sees where

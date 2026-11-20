@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, departExpedition, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION
+import { advanceDay, craftProblem, departExpedition, joinAfterExpedition, joinMessages, ogreRecruit, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION, D6: craftProblem + joinAfterExpedition + joinMessages + ogreRecruit
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -233,5 +233,56 @@ describe("D5 save and restore", () => {
     const { colony: after, messages } = restoreAfterRefresh(forging);
     expect(after).toBe(forging);
     expect(messages[0].text).toContain("2 days left");
+  });
+});
+
+// ---------- D6 tests: new species (ogre) ----------
+describe("D6 ogre species", () => {
+  const ogre = (extra: Partial<Dwarf> = {}): Dwarf => ({ ...ogreRecruit, ...extra });
+  const rich = (dwarves: Dwarf[]): ColonyState => ({
+    day: 1, resources: { wood: 20, stone: 20, food: 20, tools: 0, weapons: 0 }, dwarves,
+  });
+
+  it("joins after the first successful Old Mine expedition, unassigned and idle", () => {
+    const next = joinAfterExpedition(rich([dwarf("a")]), "old-mine");
+    expect(next.dwarves).toHaveLength(2);
+    expect(next.dwarves[1]).toMatchObject({ species: "ogre", assignment: null, status: "idle" });
+    expect(joinMessages([dwarf("a")], next.dwarves)[0].text).toContain("joins Stonehome");
+  });
+
+  it("joins only once and never from another destination", () => {
+    const once = joinAfterExpedition(rich([dwarf("a")]), "old-mine");
+    expect(joinAfterExpedition(once, "old-mine")).toBe(once); // second success: SAME state
+    const other = rich([dwarf("a")]);
+    expect(joinAfterExpedition(other, "crystal-cave")).toBe(other);
+  });
+
+  it("a failed expedition brings no ogre (failure path never calls the join)", () => {
+    const away = departExpedition(rich([dwarf("a")]), "a");
+    const back = returnFromExpedition(away, "a", {}); // D4 failure path
+    expect(back.dwarves.some((d) => d.species === "ogre")).toBe(false);
+  });
+
+  it("ogre has its own production: wood 5, stone 4, food 1", () => {
+    const out = (job: "woodcutting" | "mining" | "farming") =>
+      advanceDay({ ...rich([ogre({ assignment: job, status: "working" })]), resources: { wood: 0, stone: 0, food: 1, tools: 0, weapons: 0 } }).resources;
+    expect(out("woodcutting").wood).toBe(5);
+    expect(out("mining").stone).toBe(4);
+    expect(out("farming").food).toBe(1); // harvests 1, eats 1 -> 1 left
+  });
+
+  it("ogre cannot forge tools (state unchanged) but forges a weapon in 1 day", () => {
+    const state = rich([ogre()]);
+    expect(craftProblem(state, "tool", "ogre-1")).toContain("too clumsy");
+    expect(startCraft(state, "tool", "ogre-1")).toBe(state);
+    const crafting = startCraft(state, "weapon", "ogre-1");
+    expect(crafting.forgeJob?.daysLeft).toBe(1);
+    expect(advanceDay(crafting).resources.weapons).toBe(1);
+  });
+
+  it("save: a colony with the ogre loads, an unknown species is rejected", () => {
+    const save = (dwarves: unknown[]) => JSON.stringify({ version: SAVE_VERSION, colony: { ...rich([]), dwarves }, activities: [] });
+    expect(parseSave(save([ogre()]))).not.toBeNull();
+    expect(parseSave(save([{ ...ogre(), species: "elf" }]))).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { useState } from "react"; // D3: remembers which dwarf is chosen for the forge
 import { Chronicle } from "../components/Chronicle";
-import { recipes } from "../simulation";
+import { craftDays, recipes } from "../simulation"; // D6: craftDays = time for the chosen smith
 import { useColony } from "../state/ColonyContext";
 
 export function ForgePage() {
@@ -14,6 +14,9 @@ export function ForgePage() {
   const crafter = job && colony.dwarves.find((dwarf) => dwarf.id === job.dwarfId);
   // D3: the craft only advances on days the crafter can work (3+ hungry days = paused, D1 rule)
   const paused = crafter ? (crafter.hungerDays ?? 0) >= 3 : false;
+  // D6: the chosen smith, so the page can show the ogre's own crafting rules
+  const smith = colony.dwarves.find((dwarf) => dwarf.id === smithId);
+  const weaponDays = craftDays(smith, "weapon");
 
   return (
     <div className="forge-layout">
@@ -60,6 +63,8 @@ export function ForgePage() {
             <h2>Craft a tool</h2>
             {/* D2: explains what a tool is for, so the player can decide between tool and weapon */}
             <p>Equip a dwarf on the Colony page: +1 of their resource per day.</p>
+            {/* D6: ogre limitation, shown before the player tries */}
+            {smith?.species === "ogre" && <p>Ogres are too clumsy to forge tools.</p>}
           </div>
           <div className="recipe">
             {/* D2: costs come from the shared recipe table, so the screen always matches the real cost */}
@@ -82,6 +87,8 @@ export function ForgePage() {
             <small>EMBER FORGE</small>
             <h2>Craft a weapon</h2>
             <p>Stored in the armory to defend Stonehome against hostile events.</p>
+            {/* D6: ogre ability, shown when the ogre is the chosen smith */}
+            {smith?.species === "ogre" && <p>Ogre strength: forges a weapon in 1 day.</p>}
           </div>
           <div className="recipe">
             <span>{recipes.weapon.cost.wood} 🪵</span>
@@ -90,7 +97,8 @@ export function ForgePage() {
             <i>→</i>
             <span>1 🗡️</span>
             {/* D3: crafting time + same busy lock as the tool */}
-            <span>· {recipes.weapon.days} days</span>
+            {/* D6: weapon time depends on the smith (ogre = 1 day) */}
+            <span>· {weaponDays} day{weaponDays > 1 ? "s" : ""}</span>
             <button disabled={Boolean(job)} onClick={() => startForge("weapon", smithId)}>
               Forge weapon
             </button>
