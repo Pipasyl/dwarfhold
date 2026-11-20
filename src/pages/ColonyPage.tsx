@@ -159,6 +159,11 @@ export function ColonyPage() {
             A result returns in one request. The selected dwarf is unavailable
             while travelling.
           </p>
+          {/* D4: the team's tool rule and failure rule, shown where the player decides */}
+          <p>
+            An equipped tool travels with the dwarf (no bonus while away). A failed
+            trip brings the dwarf back empty-handed.
+          </p>
         </section>
 
         <Chronicle activities={activities} />

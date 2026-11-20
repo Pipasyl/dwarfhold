@@ -3,12 +3,12 @@ import { beginExpedition } from "../api";
 // D1: statusFor = shared badge rule, hungerMessages = chronicle text for hunger changes
 // D2: toggleTool = equip/return a tool
 // D3: craftProblem/startCraft = timed forge rules, forgeMessages = chronicle text for a finished craft
-import { advanceDay, craftProblem, forgeMessages, hungerMessages, jobLabel, recipes, startCraft, statusFor, toggleTool, type RecipeId } from "../simulation";
+// D4: expeditionProblem/departExpedition/returnFromExpedition = resilient expedition rules
+import { advanceDay, craftProblem, departExpedition, expeditionProblem, forgeMessages, returnFromExpedition, hungerMessages, jobLabel, recipes, startCraft, statusFor, toggleTool, type RecipeId } from "../simulation";
 import type {
   Activity,
   ColonyState,
   JobType,
-  ResourceKey,
 } from "../types";
 import { ColonyContext, type ColonyContextValue } from "./ColonyContext";
 
@@ -170,82 +170,50 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     log(dwarf.hasTool ? `${dwarf.name} returned a tool to the stores.` : `${dwarf.name} takes up a tool.`);
   }
 
+  // D4: lock that is set AT THE CLICK. WHY a ref: the button only greys out after React redraws,
+  // so two fast clicks could both start a request (= double rewards). A ref changes immediately.
+  const expeditionLock = useRef(false);
+
+  // D4: rewritten for resilience. Every path (success, error answer, timeout, server off)
+  // ends with the dwarf back home, and rewards are added exactly once.
   async function sendExpedition(dwarfId: string, destination: string) {
-    const dwarf = colony.dwarves.find((item) => item.id === dwarfId);
-    if (!dwarf) return;
-    // D3: a dwarf at the forge can't leave at the same time (one activity per dwarf)
-    if (dwarf.status === "crafting") {
-      log(`${dwarf.name} is busy at the forge.`, "warning");
+    if (expeditionLock.current) return; // D4: a request is already running
+    // D4: eligibility check (also covers the D3 "busy at the forge" case)
+    const problem = expeditionProblem(colony, dwarfId);
+    if (problem) {
+      log(problem, "warning");
       return;
     }
+    const dwarf = colony.dwarves.find((item) => item.id === dwarfId)!;
 
+    expeditionLock.current = true;
     setExpeditionPending(true);
-    setColony((current) => ({
-      ...current,
-      dwarves: current.dwarves.map((item) =>
-        item.id === dwarf.id ? { ...item, status: "expedition" } : item,
-      ),
-    }));
-    setActivities((current) => [
-      {
-        id: crypto.randomUUID(),
-        day: colony.day,
-        message: `${dwarf.name} departed for ${destination.replace("-", " ")}.`,
-      },
-      ...current,
-    ]);
+    setColony((current) => departExpedition(current, dwarfId)); // D4: tool stays equipped and travels along
+    log(`${dwarf.name} departed for ${destination.replace("-", " ")}${dwarf.hasTool ? ", taking their tool" : ""}.`);
 
     try {
       const result = await beginExpedition(dwarf.id, destination);
-
-      setColony((current) => ({
-        ...current,
-        resources: Object.entries(result.rewards).reduce(
-          (all, [key, amount]) => ({
-            ...all,
-            [key]: all[key as ResourceKey] + (amount ?? 0),
-          }),
-          current.resources,
-        ),
-        dwarves: current.dwarves.map((item) =>
-          item.id === dwarf.id
-            ? {
-                ...item,
-                // D1 badge fix: same shared rule when the dwarf comes back from an expedition
-                status: statusFor(item),
-              }
-            : item,
-        ),
-      }));
-      setActivities((current) =>
-        [
-          {
-            id: result.expeditionId,
-            day: colony.day,
-            message: result.message,
-            tone: "good" as const,
-          },
-          ...current,
-        ].slice(0, 6),
-      );
+      setColony((current) => returnFromExpedition(current, dwarfId, result.rewards)); // D4: rewards once
+      // D4: random id instead of the server's expeditionId: the server restarts its numbering,
+      // so the same id could appear twice in the chronicle list
+      // D4: rewards listed in the message, e.g. "(+8 stone, +1 tool)", so the player sees where
+      // new resources come from (a found tool is NEW, the dwarf's own tool just travelled along)
+      const gains = Object.entries(result.rewards)
+        .map(([key, amount]) => `+${amount} ${amount === 1 ? key.replace(/s$/, "") : key}`)
+        .join(", ");
+      log(`${result.message}${gains ? ` (${gains})` : ""}`, "good");
     } catch (error) {
-      setActivities((current) =>
-        [
-          {
-            id: crypto.randomUUID(),
-            day: colony.day,
-            message:
-              error instanceof Error
-                ? error.message
-                : "The expedition was lost from view.",
-            tone: "warning" as const,
-          },
-          ...current,
-        ].slice(0, 6),
+      // D4 fix (Blocked Pass bug): a failed request now brings the dwarf back, with no rewards
+      setColony((current) => returnFromExpedition(current, dwarfId, {}));
+      log(
+        `${error instanceof Error ? error.message : "The expedition was lost from view."} ${dwarf.name} returns empty-handed.`,
+        "warning",
       );
+    } finally {
+      // D4: always unlock, whatever happened, so the button never stays blocked
+      expeditionLock.current = false;
+      setExpeditionPending(false);
     }
-
-    setExpeditionPending(false);
   }
 
   const value: ColonyContextValue = {

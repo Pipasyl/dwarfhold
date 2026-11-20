@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, forgeMessages, hungerMessages, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed)
+import { advanceDay, departExpedition, forgeMessages, hungerMessages, returnFromExpedition, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -147,5 +147,45 @@ describe("D3 timed crafting", () => {
   it("tools can't be swapped while crafting", () => {
     const state = { ...stocked([dwarf("a", { status: "crafting" })]), resources: { wood: 0, stone: 0, food: 0, tools: 1, weapons: 0 } };
     expect(toggleTool(state, "a")).toBe(state);
+  });
+});
+
+// ---------- D4 tests: resilient expeditions ----------
+describe("D4 resilient expeditions", () => {
+  it("depart: dwarf away, tool stays equipped, stock unchanged", () => {
+    const start = colony(5, [dwarf("a", { assignment: "mining", status: "working", hasTool: true })]);
+    const away = departExpedition(start, "a");
+    expect(away.dwarves[0]).toMatchObject({ status: "expedition", hasTool: true });
+    expect(away.resources).toEqual(start.resources);
+  });
+
+  it("success: rewards added exactly once, dwarf back to their job", () => {
+    const away = departExpedition(colony(5, [dwarf("a", { assignment: "mining" })]), "a");
+    const back = returnFromExpedition(away, "a", { stone: 8, tools: 1 });
+    expect(back.resources).toMatchObject({ stone: 8, tools: 1 });
+    expect(back.dwarves[0].status).toBe("working");
+    expect(returnFromExpedition(back, "a", { stone: 8, tools: 1 })).toBe(back); // repeated answer -> nothing
+  });
+
+  it("failure: dwarf comes back, no rewards", () => {
+    const away = departExpedition(colony(5, [dwarf("a")]), "a");
+    const back = returnFromExpedition(away, "a", {});
+    expect(back.dwarves[0].status).toBe("idle");
+    expect(back.resources).toEqual(away.resources);
+  });
+
+  it("invalid departures change nothing: already away, crafting, too hungry", () => {
+    const away = colony(5, [dwarf("a", { status: "expedition" })]);
+    expect(departExpedition(away, "a")).toBe(away);
+    const crafting = colony(5, [dwarf("a", { status: "crafting" })]);
+    expect(departExpedition(crafting, "a")).toBe(crafting);
+    const starving = colony(5, [dwarf("a", { hungerDays: 3 })]);
+    expect(departExpedition(starving, "a")).toBe(starving);
+  });
+
+  it("while away: eats but produces nothing, and the tool gives no bonus", () => {
+    const next = advanceDay(colony(5, [dwarf("a", { assignment: "woodcutting", status: "expedition", hasTool: true })]));
+    expect(next.resources).toMatchObject({ wood: 0, food: 4 });
+    expect(next.dwarves[0].status).toBe("expedition");
   });
 });
