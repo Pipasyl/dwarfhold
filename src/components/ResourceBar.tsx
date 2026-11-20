@@ -4,7 +4,8 @@ const details = {
   wood: ["🪵", "Timber"],
   stone: ["🪨", "Stone"],
   food: ["🍄", "Rations"],
-  tools: ["⚒️", "Tools"],
+  tools: ["⚒️", "Free tools"], // D2: renamed, because equipped tools are not in the stock any more
+  weapons: ["🗡️", "Weapons"], // D2: new colony resource
 } as const;
 
 export function ResourceBar({ resources }: { resources: Resources }) {

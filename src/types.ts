@@ -1,7 +1,9 @@
-export type ResourceKey = "wood" | "stone" | "food" | "tools";
+// D2: "weapons" added as a colony resource (weapons are stored, not owned by a dwarf)
+export type ResourceKey = "wood" | "stone" | "food" | "tools" | "weapons";
 export type JobType = "woodcutting" | "mining" | "farming" | null;
 export type DwarfStatus = "idle" | "working" | "expedition";
-export interface Resources { wood: number; stone: number; food: number; tools: number }
+// D2: tools = FREE tools in storage only; equipped tools live on the dwarf (hasTool)
+export interface Resources { wood: number; stone: number; food: number; tools: number; weapons: number }
 
 export interface Dwarf { 
     id: string;
@@ -13,6 +15,8 @@ export interface Dwarf {
      specialty?: Exclude<JobType, null> 
      // Counts consecutive days without a meal.
      hungerDays?: number
+     // D2: true while this dwarf carries a tool (max 1 per dwarf, so yes/no is enough)
+     hasTool?: boolean
 }
 
 export interface ColonyState { 

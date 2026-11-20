@@ -1,13 +1,10 @@
 import { useState } from "react";
 import { Chronicle } from "../components/Chronicle";
 import { DwarfRoster } from "../components/DwarfRoster";
-import { hungerOutput, jobLabel, production } from "../simulation";
+// D2: workerOutput replaces the local hunger helper, so the ledger uses the exact simulation formula (tool + hunger)
+import { jobLabel, production, workerOutput } from "../simulation";
 import { useColony } from "../state/ColonyContext";
-import type { Dwarf, ResourceKey } from "../types";
-
-// Same rule as the simulation: hungerDays -> share of normal output (rounded per dwarf)
-const hungerShare = (dwarf: Dwarf) =>
-  hungerOutput[Math.min(dwarf.hungerDays ?? 0, 3)];
+import type { ResourceKey } from "../types";
 
 export function ColonyPage() {
   const {
@@ -16,6 +13,7 @@ export function ColonyPage() {
     expeditionPending,
     assignDwarf,
     sendExpedition,
+    toggleTool, // D2: equip/return button on the dwarf cards
   } = useColony();
   const [destination, setDestination] = useState("crystal-cave");
   const [expeditionDwarf, setExpeditionDwarf] = useState("dwarf-3");
@@ -28,9 +26,8 @@ export function ColonyPage() {
         const output = production[dwarf.assignment];
         Object.entries(output).forEach(([resource, amount]) => {
           // Hungry dwarves count with their reduced output, so the net food matches the real day
-          total[resource as ResourceKey] += Math.round(
-            (amount ?? 0) * hungerShare(dwarf),
-          );
+          // D2: same shared formula as the simulation, so the tool bonus is included too
+          total[resource as ResourceKey] += workerOutput(dwarf, amount ?? 0);
         });
       }
       return total;
@@ -40,12 +37,19 @@ export function ColonyPage() {
       stone: 0,
       food: -colony.dwarves.length,
       tools: 0,
+      weapons: 0, // D2: new resource, never produced by daily work
     },
   );
 
   return (
     <div className="dashboard">
-      <DwarfRoster dwarves={colony.dwarves} onAssign={assignDwarf} />
+      {/* D2: the roster also gets the equip/return action and the free tool count */}
+      <DwarfRoster
+        dwarves={colony.dwarves}
+        onAssign={assignDwarf}
+        onToggleTool={toggleTool}
+        freeTools={colony.resources.tools}
+      />
 
       <section className="center-stack">
         <section className="panel production">
@@ -65,10 +69,12 @@ export function ColonyPage() {
               // D1 ledger fix: only workers who are present produce; "N assigned" still shows everyone with the job
               const present = workers.filter((dwarf) => dwarf.status !== "expedition");
               const perDwarf = Object.values(production[job])[0] ?? 0;
-              const full = present.length * perDwarf; // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
-              // Real output of this job today, with hunger applied
+              // D1 ledger fix: present workers only, so "−N from hunger" shows only hunger losses
+              // D2: "full" = output without hunger, including +1 for each worker with a tool
+              const full = present.reduce((sum, dwarf) => sum + perDwarf + (dwarf.hasTool ? 1 : 0), 0);
+              // Real output of this job today, with hunger and tools applied (D2: shared formula)
               const actual = present.reduce(
-                (sum, dwarf) => sum + Math.round(perDwarf * hungerShare(dwarf)),
+                (sum, dwarf) => sum + workerOutput(dwarf, perDwarf),
                 0,
               );
 

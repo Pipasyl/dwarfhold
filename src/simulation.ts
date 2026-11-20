@@ -11,6 +11,50 @@ export const hungerOutput = [1, 0.5, 0.3, 0];
 
 const outputShare = (dwarf: Dwarf) => hungerOutput[Math.min(dwarf.hungerDays ?? 0, 3)];
 
+// D2: output of one worker = (normal amount + 1 if they carry a tool) x hunger share, rounded.
+// WHY hunger on the total: a starving dwarf is slow whatever they hold, and 3+ hungry days still means 0.
+// Exported so the Shift Ledger uses exactly the same formula as the simulation.
+export const workerOutput = (dwarf: Dwarf, amount: number) =>
+  Math.round((amount + (dwarf.hasTool ? 1 : 0)) * outputShare(dwarf));
+
+// D2: forge recipes in one place, so the forge page, the check and the tests all use the same costs.
+// Weapon = 2 wood + 4 stone: costs more than a tool and leans on stone (mining/expeditions matter).
+export const recipes = {
+  tool: { cost: { wood: 3, stone: 2 }, result: "tools" },
+  weapon: { cost: { wood: 2, stone: 4 }, result: "weapons" },
+} as const;
+export type RecipeId = keyof typeof recipes;
+
+// D2: true only if the stock has EVERY material of the recipe.
+// WHY: the starter only checked wood, so stone could go negative.
+export const canCraft = (resources: Resources, recipe: RecipeId) =>
+  Object.entries(recipes[recipe].cost).every(([key, amount]) => resources[key as keyof Resources] >= amount);
+
+// D2: crafts one item. An invalid attempt returns the SAME state, so nothing changes.
+export function craft(state: ColonyState, recipe: RecipeId): ColonyState {
+  if (!canCraft(state.resources, recipe)) return state;
+  const resources = { ...state.resources };
+  Object.entries(recipes[recipe].cost).forEach(([key, amount]) => {
+    resources[key as keyof Resources] -= amount;
+  });
+  resources[recipes[recipe].result] += 1;
+  return { ...state, resources };
+}
+
+// D2: equip a free tool, or return the dwarf's tool to storage.
+// Free tools + equipped tools always stay the same total. Invalid cases return the SAME state:
+// dwarf away (D4 decides tools on expeditions), unknown dwarf, or no free tool to equip.
+export function toggleTool(state: ColonyState, dwarfId: string): ColonyState {
+  const dwarf = state.dwarves.find((item) => item.id === dwarfId);
+  if (!dwarf || dwarf.status === "expedition") return state;
+  if (!dwarf.hasTool && state.resources.tools < 1) return state;
+  return {
+    ...state,
+    resources: { ...state.resources, tools: state.resources.tools + (dwarf.hasTool ? 1 : -1) },
+    dwarves: state.dwarves.map((item) => (item.id === dwarfId ? { ...item, hasTool: !item.hasTool } : item)),
+  };
+}
+
 // D1 badge fix: ONE shared rule for the WORKING/IDLE badge.
 // WHY: before, assigning a job always showed WORKING, even for a dwarf who is 3+ days hungry
 // and produces nothing. Now every place that sets the badge asks this function.
@@ -48,11 +92,11 @@ export function advanceDay(state: ColonyState): ColonyState {
   // A dwarf on an expedition is away and cannot do daily work
   const canWork = (dwarf: Dwarf) => Boolean(dwarf.assignment) && dwarf.status !== "expedition";
 
-  // Adds the dwarf's daily output, reduced by hunger and rounded to whole numbers
+  // Adds the dwarf's daily output (D2: +1 with a tool), reduced by hunger and rounded to whole numbers
   const harvest = (dwarf: Dwarf) => {
     if (!dwarf.assignment) return;
     Object.entries(production[dwarf.assignment]).forEach(([resource, amount]) => {
-      resources[resource as keyof Resources] += Math.round((amount ?? 0) * outputShare(dwarf));
+      resources[resource as keyof Resources] += workerOutput(dwarf, amount ?? 0); // D2: tool bonus + hunger via shared formula
     });
   };
 

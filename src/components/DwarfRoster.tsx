@@ -19,9 +19,11 @@ function hungerText(days: number) {
 interface Props {
   dwarves: Dwarf[];
   onAssign: (id: string, job: JobType) => void;
+  onToggleTool: (id: string) => void; // D2: equip a free tool or return it
+  freeTools: number; // D2: needed to disable "Equip tool" when the stock is empty
 }
 
-export function DwarfRoster({ dwarves, onAssign }: Props) {
+export function DwarfRoster({ dwarves, onAssign, onToggleTool, freeTools }: Props) {
   const presentDwarves = dwarves.filter(
     (dwarf) => dwarf.status !== "expedition",
   ).length;
@@ -61,7 +63,11 @@ export function DwarfRoster({ dwarves, onAssign }: Props) {
               </div>
 
               <div className="dwarf-details">
-                <h3>{dwarf.name}</h3>
+                {/* D2: tool mark next to the name, so the owner of each tool is visible at a glance */}
+                <h3>
+                  {dwarf.name}
+                  {dwarf.hasTool && <span title="Carries a tool: +1 output per day"> ⚒️</span>}
+                </h3>
                 <p>
                   {dwarf.title} · {specialty}
                   {/* Hunger text is added to the existing line, so the card gets no extra row */}
@@ -87,6 +93,16 @@ export function DwarfRoster({ dwarves, onAssign }: Props) {
                     </option>
                   ))}
                 </select>
+
+                {/* D2: one button that equips or returns. Disabled while away (D4 decides tools on
+                    expeditions) or when there is no free tool to equip. */}
+                <button
+                  className="tool-button"
+                  disabled={isAway || (!dwarf.hasTool && freeTools < 1)}
+                  onClick={() => onToggleTool(dwarf.id)}
+                >
+                  {dwarf.hasTool ? "Return tool" : "Equip tool (+1/day)"}
+                </button>
               </div>
 
               <span className="status">{dwarf.status}</span>

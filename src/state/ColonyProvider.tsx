@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { beginExpedition } from "../api";
 // D1: statusFor = shared badge rule, hungerMessages = chronicle text for hunger changes
-import { advanceDay, hungerMessages, jobLabel, statusFor } from "../simulation";
+// D2: craft/canCraft/recipes = forge rules, toggleTool = equip/return a tool
+import { advanceDay, canCraft, craft, hungerMessages, jobLabel, recipes, statusFor, toggleTool, type RecipeId } from "../simulation";
 import type {
   Activity,
   ColonyState,
@@ -17,6 +18,7 @@ const initialState: ColonyState = {
     stone: 9,
     food: 18,
     tools: 1,
+    weapons: 0, // D2: new colony resource, starts empty
   },
   dwarves: [
     {
@@ -124,40 +126,37 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  function craftTool() {
-    if (colony.resources.wood < 3) {
-      setActivities((current) => [
-        {
-          id: crypto.randomUUID(),
-          day: colony.day,
-          message: "The forge needs more timber.",
-          tone: "warning" as const,
-        },
-        ...current,
-      ]);
+  // D2: adds one chronicle entry (same 6-entry limit as the rest of the chronicle)
+  function log(message: string, tone?: "good" | "warning") {
+    setActivities((current) =>
+      [{ id: crypto.randomUUID(), day: colony.day, message, tone }, ...current].slice(0, 6),
+    );
+  }
+
+  // D2: one forge function for both recipes (replaces the old craftTool).
+  // WHY: the old version only checked wood, so stone could go negative. canCraft checks EVERY material,
+  // and craft() changes nothing if the check fails.
+  function forge(recipe: RecipeId) {
+    if (!canCraft(colony.resources, recipe)) {
+      const { wood, stone } = recipes[recipe].cost;
+      log(`The forge needs ${wood} wood and ${stone} stone for a ${recipe}.`, "warning");
       return;
     }
+    setColony((current) => craft(current, recipe));
+    log(recipe === "tool" ? "A sturdy iron tool joins the stores." : "A keen axe-blade joins the armory.", "good");
+  }
 
-    setColony((current) => ({
-      ...current,
-      resources: {
-        ...current.resources,
-        wood: current.resources.wood - 3,
-        stone: current.resources.stone - 2,
-        tools: current.resources.tools + 1,
-      },
-    }));
-    setActivities((current) =>
-      [
-        {
-          id: crypto.randomUUID(),
-          day: colony.day,
-          message: "A sturdy iron tool joins the stores.",
-          tone: "good" as const,
-        },
-        ...current,
-      ].slice(0, 6),
-    );
+  // D2: equip a free tool, or return it to storage. toggleTool re-checks against the newest state,
+  // so a double click can never create or lose a tool.
+  function equipOrReturnTool(id: string) {
+    const dwarf = colony.dwarves.find((item) => item.id === id);
+    if (!dwarf || dwarf.status === "expedition") return;
+    if (!dwarf.hasTool && colony.resources.tools < 1) {
+      log("No free tool in the stores.", "warning");
+      return;
+    }
+    setColony((current) => toggleTool(current, id));
+    log(dwarf.hasTool ? `${dwarf.name} returned a tool to the stores.` : `${dwarf.name} takes up a tool.`);
   }
 
   async function sendExpedition(dwarfId: string, destination: string) {
@@ -240,7 +239,9 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     expeditionPending,
     togglePaused: () => setPaused((value) => !value),
     assignDwarf,
-    craftTool,
+    craftTool: () => forge("tool"), // D2: both recipes go through the same checked forge
+    craftWeapon: () => forge("weapon"),
+    toggleTool: equipOrReturnTool,
     sendExpedition,
   };
 
