@@ -4,7 +4,13 @@ import { WEAPONS_NEEDED } from "../simulation"; // D7: weapon threshold for the 
 import { useColony } from "../state/ColonyContext";
 
 export function Layout() {
-  const { colony, paused, togglePaused, raidReport, closeRaidReport } = useColony(); // D7: popup state + OK action
+  // D7: popup state + OK action. D1 game over: starved. D5: newColony.
+  const { colony, paused, togglePaused, raidReport, closeRaidReport, starved, newColony } = useColony();
+
+  // D5 New colony: asks first, because this throws the whole saved game away (one wrong click must not do that)
+  function confirmNewColony() {
+    if (window.confirm("Abandon Stonehome and start a new colony? Your saved game will be lost.")) newColony();
+  }
 
   return (
     <main>
@@ -28,9 +34,14 @@ export function Layout() {
         <div className="day">
           <small>DEEP DAY</small>
           <strong>{colony.day}</strong>
-          <button onClick={togglePaused}>
-            {paused ? "Wake the hold" : "Pause"}
-          </button>
+          {/* D5: wrapper so the two buttons sit side by side in the day box */}
+          <div className="day-buttons">
+            <button onClick={togglePaused}>
+              {paused ? "Wake the hold" : "Pause"}
+            </button>
+            {/* D5: always visible way to start over (also the way out of a stuck or unwanted save) */}
+            <button onClick={confirmNewColony}>New colony</button>
+          </div>
         </div>
       </header>
 
@@ -66,6 +77,19 @@ export function Layout() {
             <h2>⚔ The goblins attacked!</h2>
             <p>{raidReport.text}</p>
             <button onClick={closeRaidReport}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {/* D1 game over: shown when the colony has starved. Same popup style as the raid. Waits until a
+          raid popup is closed, so two popups never lie on top of each other. No confirm needed here:
+          the game is already lost, starting over is the only way forward. */}
+      {starved && !raidReport && (
+        <div className="raid-overlay">
+          <div className="raid-popup" role="alertdialog" aria-label="Game over">
+            <h2>☠ Stonehome has starved</h2>
+            <p>The stores are empty and every member is too weak to work, farm or travel. The colony cannot recover.</p>
+            <button onClick={newColony}>Start a new colony</button>
           </div>
         </div>
       )}

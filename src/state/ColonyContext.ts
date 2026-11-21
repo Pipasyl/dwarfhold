@@ -15,6 +15,10 @@ export interface ColonyContextValue {
   // D7: result of the attack shown as a popup (null = no popup) + the OK button that closes it
   raidReport: { text: string; tone: "good" | "warning" } | null;
   closeRaidReport: () => void;
+  // D1 game over: true when the colony has starved and can never recover (shows the game-over popup)
+  starved: boolean;
+  // D5: throws the current colony away and starts a fresh one (the autosave then overwrites the old save)
+  newColony: () => void;
 }
 
 export const ColonyContext = createContext<ColonyContextValue | null>(null);

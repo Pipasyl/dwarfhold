@@ -7,7 +7,8 @@ import { beginExpedition } from "../api";
 // D5: parseSave/restoreAfterRefresh/SAVE_VERSION = save checks and refresh policy
 // D6: joinAfterExpedition/joinMessages = the ogre joins after the first Old Mine success; craftDays = smith-specific craft time
 // D7: raidAfterExpedition/raidMessages = goblin raid after a Goblin Warrens success + its chronicle messages
-import { advanceDay, raidAfterExpedition, raidMessages, craftDays, craftProblem, joinAfterExpedition, joinMessages, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation"; // D6: recipes removed (craftDays now gives the time)
+// Game over/New colony: isStarved = the colony can never recover from hunger
+import { advanceDay, isStarved, raidAfterExpedition, raidMessages, craftDays, craftProblem, joinAfterExpedition, joinMessages, departExpedition, expeditionProblem, forgeMessages, parseSave, restoreAfterRefresh, returnFromExpedition, hungerMessages, jobLabel, SAVE_VERSION, startCraft, statusFor, toggleTool, type RecipeId, type SaveData } from "../simulation"; // D6: recipes removed (craftDays now gives the time)
 import type {
   Activity,
   ColonyState,
@@ -122,8 +123,14 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     }
   }, [colony, activities]);
 
+  // D1 game over: calculated from the colony on every render (not stored), so it can never disagree
+  // with the colony. Also works after a refresh: a starved save shows the game-over popup again.
+  const starved = isStarved(colony);
+
   useEffect(() => {
-    if (paused) return;
+    // D1 game over: the clock also stops when the colony has starved (nothing can change any more,
+    // so the day counter should not keep running behind the game-over popup)
+    if (paused || starved) return;
 
     const timer = window.setInterval(
       () => setColony((current) => advanceDay(current)),
@@ -131,7 +138,7 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     );
 
     return () => window.clearInterval(timer);
-  }, [paused]);
+  }, [paused, starved]);
 
   // D1 chronicle: remembers the colony from the previous render, so we can see what changed.
   // WHY a ref: a ref keeps a value between renders, and changing it does not cause a new render.
@@ -243,6 +250,10 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
   // D4: lock that is set AT THE CLICK. WHY a ref: the button only greys out after React redraws,
   // so two fast clicks could both start a request (= double rewards). A ref changes immediately.
   const expeditionLock = useRef(false);
+  // D5 New colony: counts how many times a new colony was started. WHY: an expedition answer that
+  // arrives AFTER "New colony" belongs to the old colony and must be ignored. Without this, a late
+  // Old Mine answer could add the ogre (or a Goblin Warrens answer start a raid) in the new colony.
+  const colonyRun = useRef(0);
 
   // D4: rewritten for resilience. Every path (success, error answer, timeout, server off)
   // ends with the dwarf back home, and rewards are added exactly once.
@@ -260,9 +271,11 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
     setExpeditionPending(true);
     setColony((current) => departExpedition(current, dwarfId)); // D4: tool stays equipped and travels along
     log(`${dwarf.name} departed for ${destination.replace("-", " ")}${dwarf.hasTool ? ", taking their tool" : ""}.`);
+    const run = colonyRun.current; // D5 New colony: remember which colony sent this expedition
 
     try {
       const result = await beginExpedition(dwarf.id, destination);
+      if (colonyRun.current !== run) return; // D5 New colony: old colony's answer -> ignore (finally still unlocks)
       // D4: rewards once. D6: in the SAME update the ogre may join (only here = only on success).
       // WHY the same update: rewards and the new member arrive together, so neither can happen twice or alone.
       // D7: the raid is set in this SAME success-only update, so a failed request can never start an attack
@@ -278,6 +291,7 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
         .join(", ");
       log(`${result.message}${gains ? ` (${gains})` : ""}`, "good");
     } catch (error) {
+      if (colonyRun.current !== run) return; // D5 New colony: old colony's failure -> ignore, no message
       // D4 fix (Blocked Pass bug): a failed request now brings the dwarf back, with no rewards
       setColony((current) => returnFromExpedition(current, dwarfId, {}));
       log(
@@ -289,6 +303,23 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
       expeditionLock.current = false;
       setExpeditionPending(false);
     }
+  }
+
+  // D5 New colony: back to the starting colony (3 dwarves, so an ogre who joined is gone too,
+  // no raid, no forge job, start resources, fresh chronicle). No separate delete of the save is needed:
+  // the autosave effect runs right after and overwrites the old save with this fresh colony.
+  function newColony() {
+    colonyRun.current += 1; // a running expedition now belongs to the old colony and will be ignored
+    // WHY: the chronicle effect compares the old and the new colony. Setting the "before" value to the
+    // fresh colony first stops false messages like "X eats again" or "X finished forging".
+    previousColony.current = initialState;
+    setColony(initialState);
+    setActivities([
+      { id: crypto.randomUUID(), day: initialState.day, message: "The old hold was abandoned. A new colony begins.", tone: "warning" },
+      ...initialActivities,
+    ]);
+    setRaidReport(null); // close a raid popup that may still be open
+    setPaused(false); // the new colony starts running
   }
 
   const value: ColonyContextValue = {
@@ -307,6 +338,8 @@ export function ColonyProvider({ children }: { children: ReactNode }) {
       setRaidReport(null);
       setPaused(false);
     },
+    starved, // D1 game over: drives the game-over popup
+    newColony, // D5: header button and game-over popup button
   };
 
   return <ColonyContext value={value}>{children}</ColonyContext>;

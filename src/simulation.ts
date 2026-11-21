@@ -417,3 +417,15 @@ export function restoreAfterRefresh(state: ColonyState) {
   }
   return { colony, messages };
 }
+
+// ---------- Game over (D1 consequence) + New colony (D5) ----------
+
+// D1 game over: true when the colony can never recover from a food shortage.
+// Starved = no food left, EVERY member is 3+ days hungry (0% output, so nobody can farm, forge or travel),
+// and nobody is on an expedition. WHY the expedition rule: a dwarf who is away can still bring food home
+// (Goblin Warrens), so the colony is not lost yet. Pure function, so it is tested like every other rule.
+export function isStarved(state: ColonyState): boolean {
+  return state.resources.food === 0
+    && state.dwarves.length > 0
+    && state.dwarves.every((member) => hungerLevel(member) === 3 && member.status !== "expedition");
+}

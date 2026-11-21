@@ -19,3 +19,5 @@
 .raid-popup h2{font:700 28px Almendra;margin:0 0 12px}
 .raid-popup p{font:18px Barlow Condensed;color:#eadfca;margin:0 0 20px}
 .raid-popup button{border:0;background:#c18b3f;color:#160f08;padding:10px 30px;font:700 15px Barlow Condensed;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}
+/* D5: Pause + New colony side by side in the day box */
+.day-buttons{display:flex;gap:6px}

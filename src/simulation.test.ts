@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDay, raidAfterExpedition, raidMessages, resolveRaid, craftProblem, departExpedition, joinAfterExpedition, joinMessages, ogreRecruit, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION, D6: craftProblem + joinAfterExpedition + joinMessages + ogreRecruit, D7: raidAfterExpedition + raidMessages + resolveRaid
+import { advanceDay, isStarved, raidAfterExpedition, raidMessages, resolveRaid, craftProblem, departExpedition, joinAfterExpedition, joinMessages, ogreRecruit, forgeMessages, hungerMessages, parseSave, restoreAfterRefresh, returnFromExpedition, SAVE_VERSION, startCraft, statusFor, toggleTool } from "./simulation"; // D1: hungerMessages + statusFor, D2: toggleTool, D3: startCraft + forgeMessages (instant craft removed), D4: departExpedition + returnFromExpedition, D5: parseSave + restoreAfterRefresh + SAVE_VERSION, D6: craftProblem + joinAfterExpedition + joinMessages + ogreRecruit, D7: raidAfterExpedition + raidMessages + resolveRaid // Game over: isStarved
 import type { ColonyState, Dwarf } from "./types"; // D1: added Dwarf for the test helper
 describe("colony simulation", () => {
   it("produces assigned resources and feeds the company", () => {
@@ -338,5 +338,30 @@ describe("D7 goblin raids", () => {
     const save = (raid: unknown) => JSON.stringify({ version: SAVE_VERSION, colony: { ...base(), raid }, activities: [] });
     expect(parseSave(save({ daysLeft: 2 }))).not.toBeNull();
     expect(parseSave(save({ daysLeft: 9 }))).toBeNull();
+  });
+});
+
+// ---------- Game over (D1) tests: when is the colony lost for good? ----------
+describe("Game over (starvation)", () => {
+  const starving = (extra: Partial<Dwarf> = {}) => dwarf("x", { hungerDays: 3, ...extra });
+
+  it("starved: no food and every member 3+ days hungry (ogre included)", () => {
+    expect(isStarved(colony(0, [starving(), dwarf("o", { hungerDays: 5, species: "ogre" })]))).toBe(true);
+  });
+
+  it("not starved: food left, or someone still able to work", () => {
+    expect(isStarved(colony(1, [starving()]))).toBe(false);
+    expect(isStarved(colony(0, [starving(), dwarf("y", { hungerDays: 2 })]))).toBe(false);
+  });
+
+  it("not starved while someone is on an expedition (they may bring food home)", () => {
+    expect(isStarved(colony(0, [starving(), dwarf("y", { hungerDays: 3, status: "expedition" })]))).toBe(false);
+  });
+
+  it("a starving farmer at 0 food really can't recover (that is why it is game over)", () => {
+    const state = colony(0, [starving({ assignment: "farming" })]);
+    const next = advanceDay(state);
+    expect(next.resources.food).toBe(0);
+    expect(isStarved(next)).toBe(true);
   });
 });
