@@ -141,8 +141,10 @@ describe("D3 timed crafting", () => {
   });
 
   it("a crafter who is 3+ days hungry pauses the craft", () => {
-    const state = { ...colony(0, [dwarf("a", { status: "crafting", hungerDays: 2 })]), forgeJob: { dwarfId: "a", recipe: "tool" as const, daysLeft: 1 } };
-    const next = advanceDay(state); // no food -> 3rd hungry day
+    // CHANGED (meal order): hungerDays 3 (was 2). WHY: the forge now works BEFORE the meal, so the
+    // crafter must already be 3 days hungry at the start of the day for the craft to pause
+    const state = { ...colony(0, [dwarf("a", { status: "crafting", hungerDays: 3 })]), forgeJob: { dwarfId: "a", recipe: "tool" as const, daysLeft: 1 } };
+    const next = advanceDay(state); // already 3 hungry days -> no progress today
     expect(next.forgeJob?.daysLeft).toBe(1);
     expect(next.resources.tools).toBe(0);
   });

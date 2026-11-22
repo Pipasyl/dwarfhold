@@ -34,6 +34,22 @@ export function advanceDay(state: ColonyState): ColonyState {
   // still feeds today's meals, and hunger lowers output from the next day on (for every job the same).
   dwarves.filter(canWork).forEach(harvest);
 
+  // 1b. D3 forge: one more day of work, but only if the crafter can work today.
+  // CHANGED (meal order): moved here from after the meals. WHY: crafting is work too, so it follows the
+  // same rule as every other job – work first, eat at the end; hunger slows the craft from the next day on.
+  // 3+ hungry days = the craft PAUSES until the dwarf eats (D1 rule).
+  let forgeJob = state.forgeJob ? { ...state.forgeJob } : null;
+  if (forgeJob) {
+    const crafter = dwarves.find((dwarf) => dwarf.id === forgeJob!.dwarfId);
+    if (crafter && outputShare(crafter) > 0) forgeJob.daysLeft -= 1;
+    if (forgeJob.daysLeft <= 0) {
+      resources[recipes[forgeJob.recipe].result] += 1; // finished item goes into the stock exactly once
+      // back to their own job automatically (step 4 re-checks the badge after the meal)
+      if (crafter) crafter.status = statusFor(crafter);
+      forgeJob = null; // forge is free again
+    }
+  }
+
   // 2. Meals at the end of the day: farmers eat first, then everyone else in list order (expedition dwarves eat too)
   [...farmers, ...others].forEach((dwarf) => {
     if (resources.food > 0) {
@@ -45,19 +61,6 @@ export function advanceDay(state: ColonyState): ColonyState {
   });
 
   // CHANGED: old step 3 "other workers produce after meals" removed – they now work in step 1 with everyone else
-
-  // 3b. D3 forge: one more day of work, but only if the crafter can work today (after meals,
-  // so today's hunger counts). 3+ hungry days = the craft PAUSES until the dwarf eats (D1 rule).
-  let forgeJob = state.forgeJob ? { ...state.forgeJob } : null;
-  if (forgeJob) {
-    const crafter = dwarves.find((dwarf) => dwarf.id === forgeJob!.dwarfId);
-    if (crafter && outputShare(crafter) > 0) forgeJob.daysLeft -= 1;
-    if (forgeJob.daysLeft <= 0) {
-      resources[recipes[forgeJob.recipe].result] += 1; // finished item goes into the stock exactly once
-      if (crafter) crafter.status = statusFor(crafter); // back to their own job automatically
-      forgeJob = null; // forge is free again
-    }
-  }
 
   // 3c. D7 raid: one day closer. At 0 the goblins attack NOW, at the END of the day (after production
   // and the forge), so a weapon finished today already counts for the defense.
