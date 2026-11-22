@@ -34,7 +34,9 @@ describe("D1 hunger system", () => {
   });
 
   it("hunger reduces output: 1 day 50%, 2 days 30%, 3 days 0% (rounded)", () => {
-    const wood = (days: number) => advanceDay(colony(0, [dwarf("w", { assignment: "woodcutting", hungerDays: days - 1 })])).resources.wood;
+    // CHANGED (meal order): hungerDays = days (was days - 1). WHY: work now happens BEFORE the meal,
+    // so today's output uses the hunger the dwarf already has at the start of the day
+    const wood = (days: number) => advanceDay(colony(0, [dwarf("w", { assignment: "woodcutting", hungerDays: days })])).resources.wood;
     expect(wood(1)).toBe(2); // 3 * 0.5 = 1.5 -> 2
     expect(wood(2)).toBe(1); // 3 * 0.3 = 0.9 -> 1
     expect(wood(3)).toBe(0);
@@ -66,7 +68,8 @@ describe("D2 tools and weapons", () => {
 
   it("hunger reduces the total with the tool, and 3+ hungry days still means 0", () => {
     const wood = (days: number) =>
-      advanceDay(colony(0, [dwarf("a", { assignment: "woodcutting", hasTool: true, hungerDays: days - 1 })])).resources.wood;
+      // CHANGED (meal order): hungerDays = days (was days - 1), same reason as the D1 hunger test
+      advanceDay(colony(0, [dwarf("a", { assignment: "woodcutting", hasTool: true, hungerDays: days })])).resources.wood;
     expect(wood(1)).toBe(2); // round(4 * 0.5)
     expect(wood(3)).toBe(0);
   });

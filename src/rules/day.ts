@@ -25,13 +25,16 @@ export function advanceDay(state: ColonyState): ColonyState {
     });
   };
 
+  // CHANGED (meal order): the farmers/others split is now only used for WHO EATS FIRST, not for who works first
   const farmers = dwarves.filter((dwarf) => canWork(dwarf) && dwarf.assignment === "farming");
   const others = dwarves.filter((dwarf) => !farmers.includes(dwarf));
 
-  // 1. Farmers harvest first, so the new food is available for today's meals
-  farmers.forEach(harvest);
+  // 1. CHANGED: EVERYONE who can work produces first (was: only farmers before the meal, others after).
+  // WHY: one simple rule for all jobs – work during the day, eat together at the end. Today's harvest
+  // still feeds today's meals, and hunger lowers output from the next day on (for every job the same).
+  dwarves.filter(canWork).forEach(harvest);
 
-  // 2. Meals: farmers eat first, then everyone else in list order (expedition dwarves eat too)
+  // 2. Meals at the end of the day: farmers eat first, then everyone else in list order (expedition dwarves eat too)
   [...farmers, ...others].forEach((dwarf) => {
     if (resources.food > 0) {
       resources.food -= 1; // food never goes below 0
@@ -41,8 +44,7 @@ export function advanceDay(state: ColonyState): ColonyState {
     }
   });
 
-  // 3. Other workers produce after meals, so today's hunger already counts
-  others.filter(canWork).forEach(harvest);
+  // CHANGED: old step 3 "other workers produce after meals" removed – they now work in step 1 with everyone else
 
   // 3b. D3 forge: one more day of work, but only if the crafter can work today (after meals,
   // so today's hunger counts). 3+ hungry days = the craft PAUSES until the dwarf eats (D1 rule).
